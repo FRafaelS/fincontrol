@@ -7,23 +7,23 @@ const authRoutes = require('./routes/auth');
 const { autenticar } = require('./middleware/auth');
 
 const app = express();
-const PORT = 3001;
+const PORT = process.env.PORT || 3001;
 
-app.use(cors());
+app.use(cors({
+  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+  credentials: true,
+}));
 app.use(express.json());
 
-// Rotas públicas
 app.use('/api/auth', authRoutes);
-
-// Rotas protegidas
 app.use('/api/gastos',   autenticar, gastosRoutes);
 app.use('/api/lookups',  autenticar, lookupsRoutes);
 app.use('/api/parcelas', autenticar, parcelasRoutes);
 
 app.get('/', (req, res) => {
-  res.json({ mensagem: 'API FinControl funcionando!' });
+  res.json({ mensagem: 'API FinControl funcionando!', versao: '1.0' });
 });
 
 app.listen(PORT, () => {
-  console.log(`Servidor rodando em http://localhost:${PORT}`);
+  console.log(`Servidor rodando na porta ${PORT}`);
 });
