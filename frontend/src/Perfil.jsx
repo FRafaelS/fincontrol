@@ -13,7 +13,7 @@ function Perfil({ usuario, token, onVoltar, onAtualizar }) {
   const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
 
   const buscarUsuarios = () => {
-    fetch('${API_URL}/api/auth/usuarios', { headers })
+    fetch(`${API_URL}/api/auth/usuarios', { headers })
       .then((r) => r.json())
       .then(setUsuarios)
       .catch(() => {});
@@ -32,7 +32,7 @@ function Perfil({ usuario, token, onVoltar, onAtualizar }) {
   const salvarPerfil = async (e) => {
     e.preventDefault();
     setSalvando(true);
-    const res = await fetch('${API_URL}/api/auth/perfil', {
+    const res = await fetch(`${API_URL}/api/auth/perfil', {
       method: 'PUT', headers,
       body: JSON.stringify(form),
     });
@@ -54,7 +54,7 @@ function Perfil({ usuario, token, onVoltar, onAtualizar }) {
       mostrarMensagem('A nova senha deve ter ao menos 6 caracteres.', true); return;
     }
     setSalvando(true);
-    const res = await fetch('${API_URL}/api/auth/trocar-senha', {
+    const res = await fetch(`${API_URL}/api/auth/trocar-senha', {
       method: 'PUT', headers,
       body: JSON.stringify({ senhaAtual: senhaForm.senhaAtual, novaSenha: senhaForm.novaSenha }),
     });
@@ -67,7 +67,7 @@ function Perfil({ usuario, token, onVoltar, onAtualizar }) {
   const cadastrarUsuario = async (e) => {
     e.preventDefault();
     setSalvando(true);
-    const res = await fetch('${API_URL}/api/auth/usuarios', {
+    const res = await fetch(`${API_URL}/api/auth/usuarios', {
       method: 'POST', headers,
       body: JSON.stringify(novoUsuario),
     });
@@ -82,7 +82,7 @@ function Perfil({ usuario, token, onVoltar, onAtualizar }) {
   };
 
   const toggleStatus = async (id, ativo) => {
-    await fetch('${API_URL}/api/auth/usuarios/${id}/status', {
+    await fetch(`${API_URL}/api/auth/usuarios/${id}/status', {
       method: 'PUT', headers,
       body: JSON.stringify({ ativo: !ativo }),
     });

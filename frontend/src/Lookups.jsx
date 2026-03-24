@@ -26,14 +26,14 @@ function Lookups({ onVoltar }) {
 
   // Busca todos os lookups (aba geral)
   const buscarTodos = () => {
-    fetch('${API_URL}/api/lookups')
+    fetch(`${API_URL}/api/lookups')
       .then((res) => res.json())
       .then((dados) => setLookups(dados.filter((l) => l.LOOKUP_TYPE === 'LOOKUP TYPE')));
   };
 
   // Busca os tipos pai
   const buscarTipos = () => {
-    fetch('${API_URL}/api/lookups/tipos')
+    fetch(`${API_URL}/api/lookups/tipos')
       .then((res) => res.json())
       .then(setTipos);
   };
@@ -41,7 +41,7 @@ function Lookups({ onVoltar }) {
   // Busca filhos de um tipo
   const buscarFilhos = (tipo) => {
     if (!tipo) return setFilhos([]);
-    fetch('${API_URL}/api/lookups/valores/${tipo}')
+    fetch(`${API_URL}/api/lookups/valores/${tipo}')
       .then((res) => res.json())
       .then(setFilhos);
   };
@@ -94,7 +94,7 @@ function Lookups({ onVoltar }) {
 
   const handleDeletar = (id) => {
     if (!window.confirm('Tem certeza que deseja excluir este lookup?')) return;
-    fetch('${API_URL}/api/lookups/${id}', { method: 'DELETE' })
+    fetch(`${API_URL}/api/lookups/${id}', { method: 'DELETE' })
       .then((res) => res.json())
       .then((data) => {
         if (data.erro) {
@@ -113,8 +113,8 @@ function Lookups({ onVoltar }) {
     setErro('');
 
     const url = editandoId
-      ? '${API_URL}/api/lookups/${editandoId}'
-      : '${API_URL}/api/lookups';
+      ? `${API_URL}/api/lookups/${editandoId}'
+      : `${API_URL}/api/lookups';
     const method = editandoId ? 'PUT' : 'POST';
 
     fetch(url, {
