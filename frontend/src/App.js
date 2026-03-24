@@ -96,7 +96,7 @@ function App() {
     buscarLookup('FORMA_PGTO', setLkFormaPgto);
     buscarLookup('STATUS_GASTO', setLkStatus);
     buscarLookup('TIPO_GASTO', setLkTipo);
-    fetchAuth(`${API_URL}/api/lookups/valores/CONFIG_ALERTAS')
+    fetchAuth(`${API_URL}/api/lookups/valores/CONFIG_ALERTAS`)
       .then((r) => r.json())
       .then((configs) => {
         const c = configs.find((c) => c.LOOKUP_CODE === 'DIAS_ALERTA_VENCIMENTO');
@@ -105,7 +105,7 @@ function App() {
   };
 
   const buscarGastos = () => {
-    fetchAuth(`${API_URL}/api/gastos')
+    fetchAuth(`${API_URL}/api/gastos`)
       .then((r) => {
         if (r.status === 401) { handleLogout(); return []; }
         return r.json();
@@ -182,7 +182,7 @@ function App() {
     e.preventDefault(); setSalvando(true);
     const url = editandoId
       ? `${API_URL}/api/gastos/${editandoId}`
-      : `${API_URL}/api/gastos';
+      : `${API_URL}/api/gastos`;
     fetchAuth(url, {
       method: editandoId ? 'PUT' : 'POST',
       body: JSON.stringify({
