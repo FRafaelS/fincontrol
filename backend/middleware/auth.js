@@ -27,8 +27,3 @@ const apenasAdmin = (req, res, next) => {
 };
 
 module.exports = { autenticar, apenasAdmin, SECRET };
-```
-
-Adiciona o `.env` no `.gitignore` — abre o arquivo e confirma que essa linha está lá:
-```
-.env
