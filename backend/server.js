@@ -29,3 +29,16 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Servidor rodando na porta ${PORT}`);
 });
+// Rota temporária de setup — remover após uso
+app.get('/setup', (req, res) => {
+  try {
+    const db = require('./database/db');
+    const bcrypt = require('bcryptjs');
+    const hash = bcrypt.hashSync('admin123', 10);
+    db.prepare('INSERT OR IGNORE INTO usuarios (nome, email, senha, perfil) VALUES (?, ?, ?, ?)')
+      .run('Administrador', 'admin@fincontrol.com', hash, 'ADMIN');
+    res.json({ mensagem: 'Usuário admin criado com sucesso!' });
+  } catch (err) {
+    res.status(500).json({ erro: err.message });
+  }
+});
