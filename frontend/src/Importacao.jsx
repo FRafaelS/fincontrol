@@ -127,7 +127,7 @@ function Importacao({ onVoltar }) {
 
     for (const registro of preview) {
       try {
-        const res = await fetch(`${API_URL}/api/gastos', {
+        const res = await fetch(`${API_URL}/api/gastos`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

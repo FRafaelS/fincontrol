@@ -32,7 +32,7 @@ function Parcelas({ onVoltar }) {
 
   useEffect(() => {
     const buscar = (tipo, setter) => {
-      fetch(`${API_URL}/api/lookups/valores/${tipo}')
+      fetch(`${API_URL}/api/lookups/valores/${tipo}`)
         .then((r) => r.json())
         .then(setter)
         .catch(() => setter([]));
@@ -120,7 +120,7 @@ function Parcelas({ onVoltar }) {
             return parseFloat(form.valor_total) / divisor;
           })();
 
-      const res = await fetch(`${API_URL}/api/parcelas/gerar', {
+      const res = await fetch(`${API_URL}/api/parcelas/gerar`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

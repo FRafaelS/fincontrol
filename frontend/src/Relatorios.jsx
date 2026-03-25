@@ -18,12 +18,12 @@ function Relatorios({ onVoltar }) {
   const [filtroAno, setFiltroAno] = useState('');
 
   useEffect(() => {
-    fetch(`${API_URL}/api/gastos')
+    fetch(`${API_URL}/api/gastos`)
       .then((r) => r.json())
       .then((d) => { setGastos(d); setCarregando(false); });
 
     const buscar = (tipo, setter) =>
-      fetch(`${API_URL}/api/lookups/valores/${tipo}')
+      fetch(`${API_URL}/api/lookups/valores/${tipo}`)
         .then((r) => r.json()).then(setter).catch(() => setter([]));
 
     buscar('RESPONSAVEL', setLkResponsavel);
