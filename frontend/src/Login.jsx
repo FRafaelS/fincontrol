@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import API_URL from './api';
 
 function Login({ onLogin }) {
   const [email, setEmail] = useState('');
@@ -46,8 +47,6 @@ function Login({ onLogin }) {
       padding: '24px',
     }}>
       <div style={{ width: '100%', maxWidth: '400px' }}>
-
-        {/* Logo */}
         <div style={{ textAlign: 'center', marginBottom: '32px' }}>
           <p style={{ fontSize: '48px', margin: '0 0 8px' }}>💳</p>
           <h1 style={{ color: '#fff', fontSize: '28px', fontWeight: '700', margin: '0 0 4px' }}>
@@ -58,23 +57,13 @@ function Login({ onLogin }) {
           </p>
         </div>
 
-        {/* Card de login */}
-        <div style={{
-          background: '#fff',
-          borderRadius: '16px',
-          padding: '32px',
-          boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
-        }}>
+        <div style={{ background: '#fff', borderRadius: '16px', padding: '32px', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
           <h2 style={{ fontSize: '20px', fontWeight: '600', color: '#1e293b', margin: '0 0 24px' }}>
             Entrar na sua conta
           </h2>
 
           {erro && (
-            <div style={{
-              background: '#fef2f2', border: '1px solid #fecaca',
-              borderRadius: '8px', padding: '12px', marginBottom: '20px',
-              color: '#dc2626', fontSize: '14px',
-            }}>
+            <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '12px', marginBottom: '20px', color: '#dc2626', fontSize: '14px' }}>
               ⚠️ {erro}
             </div>
           )}
@@ -82,45 +71,13 @@ function Login({ onLogin }) {
           <form onSubmit={handleSubmit}>
             <div style={{ marginBottom: '16px' }}>
               <label style={label}>Email</label>
-              <input
-                style={input}
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="seu@email.com"
-                required
-                autoFocus
-              />
+              <input style={input} type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="seu@email.com" required autoFocus />
             </div>
-
             <div style={{ marginBottom: '24px' }}>
               <label style={label}>Senha</label>
-              <input
-                style={input}
-                type="password"
-                value={senha}
-                onChange={(e) => setSenha(e.target.value)}
-                placeholder="••••••••"
-                required
-              />
+              <input style={input} type="password" value={senha} onChange={(e) => setSenha(e.target.value)} placeholder="••••••••" required />
             </div>
-
-            <button
-              type="submit"
-              disabled={carregando}
-              style={{
-                width: '100%',
-                background: carregando ? '#93c5fd' : '#1d4ed8',
-                color: '#fff',
-                border: 'none',
-                borderRadius: '8px',
-                padding: '12px',
-                fontSize: '15px',
-                fontWeight: '600',
-                cursor: carregando ? 'default' : 'pointer',
-                transition: 'background 0.15s',
-              }}
-            >
+            <button type="submit" disabled={carregando} style={{ width: '100%', background: carregando ? '#93c5fd' : '#1d4ed8', color: '#fff', border: 'none', borderRadius: '8px', padding: '12px', fontSize: '15px', fontWeight: '600', cursor: carregando ? 'default' : 'pointer' }}>
               {carregando ? 'Entrando...' : 'Entrar'}
             </button>
           </form>
