@@ -1,3 +1,4 @@
+import API_URL from './api';
 import React, { useState, useEffect } from 'react';
 
 const MESES = ['JAN','FEV','MAR','ABR','MAI','JUN','JUL','AGO','SET','OUT','NOV','DEZ'];

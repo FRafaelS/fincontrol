@@ -1,3 +1,4 @@
+import API_URL from './api';
 import React, { useState, useEffect } from 'react';
 
 const campoVazio = {
