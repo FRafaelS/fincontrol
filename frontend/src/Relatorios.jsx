@@ -1,12 +1,12 @@
-import API_URL from './api';
 import React, { useState, useEffect } from 'react';
+import API_URL from './api';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
 const MESES = ['JAN','FEV','MAR','ABR','MAI','JUN','JUL','AGO','SET','OUT','NOV','DEZ'];
 
-function Relatorios({ onVoltar }) {
+function Relatorios({ onVoltar, token }) {
   const [gastos, setGastos] = useState([]);
   const [carregando, setCarregando] = useState(true);
   const [lkResponsavel, setLkResponsavel] = useState([]);
@@ -18,13 +18,16 @@ function Relatorios({ onVoltar }) {
   const [filtroResponsavel, setFiltroResponsavel] = useState('');
   const [filtroAno, setFiltroAno] = useState('');
 
+  const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
+
   useEffect(() => {
-    fetch(`${API_URL}/api/gastos`)
+    fetch(`${API_URL}/api/gastos`, { headers })
       .then((r) => r.json())
-      .then((d) => { setGastos(d); setCarregando(false); });
+      .then((d) => { setGastos(Array.isArray(d) ? d : []); setCarregando(false); })
+      .catch(() => setCarregando(false));
 
     const buscar = (tipo, setter) =>
-      fetch(`${API_URL}/api/lookups/valores/${tipo}`)
+      fetch(`${API_URL}/api/lookups/valores/${tipo}`, { headers })
         .then((r) => r.json()).then(setter).catch(() => setter([]));
 
     buscar('RESPONSAVEL', setLkResponsavel);
@@ -46,7 +49,6 @@ function Relatorios({ onVoltar }) {
   });
 
   const anos = [...new Set(gastos.map((g) => g.ano).filter(Boolean))].sort((a, b) => b - a);
-
   const totalGeral = gastosFiltrados.reduce((s, g) => s + g.valor_individual, 0);
 
   const porCategoria = Object.values(
@@ -78,168 +80,90 @@ function Relatorios({ onVoltar }) {
     return partes.length > 0 ? partes.join(' · ') : 'Todos os registros';
   };
 
-  // ── Exportar Excel ──
   const exportarExcel = () => {
     const wb = XLSX.utils.book_new();
-
-    // Aba 1: Gastos detalhados
     const dadosGastos = gastosFiltrados.map((g) => ({
-      ID: g.id,
-      Descrição: g.descricao,
+      ID: g.id, 'Descrição': g.descricao,
       Categoria: getLookupLabel(lkCategoria, g.categoria),
-      Responsável: getLookupLabel(lkResponsavel, g.responsavel),
-      Parcela: g.parcela || '—',
-      'Forma Pgto': g.forma_pgto,
-      Vencimento: g.data_venc,
-      Mês: g.mes,
-      Ano: g.ano,
-      'Valor Total': g.valor_total,
-      'Valor Individual': g.valor_individual,
-      Status: getLookupLabel(lkStatus, g.status),
-      Obs: g.obs || '',
+      'Responsável': getLookupLabel(lkResponsavel, g.responsavel),
+      Parcela: g.parcela || '—', 'Forma Pgto': g.forma_pgto,
+      Vencimento: g.data_venc, 'Mês': g.mes, Ano: g.ano,
+      'Valor Total': g.valor_total, 'Valor Individual': g.valor_individual,
+      Status: getLookupLabel(lkStatus, g.status), Obs: g.obs || '',
     }));
     const ws1 = XLSX.utils.json_to_sheet(dadosGastos);
-    ws1['!cols'] = [
-      {wch:6},{wch:30},{wch:15},{wch:15},{wch:12},{wch:18},
-      {wch:12},{wch:6},{wch:6},{wch:14},{wch:16},{wch:10},{wch:20},
-    ];
     XLSX.utils.book_append_sheet(wb, ws1, 'Gastos');
 
-    // Aba 2: Resumo por categoria
-    const dadosCategoria = porCategoria.map((c) => ({
-      Categoria: c.categoria,
-      Quantidade: c.qtd,
-      Total: c.total,
+    const ws2 = XLSX.utils.json_to_sheet(porCategoria.map((c) => ({
+      Categoria: c.categoria, Quantidade: c.qtd, Total: c.total,
       Percentual: `${((c.total / totalGeral) * 100).toFixed(1)}%`,
-    }));
-    const ws2 = XLSX.utils.json_to_sheet(dadosCategoria);
-    ws2['!cols'] = [{wch:20},{wch:12},{wch:14},{wch:12}];
+    })));
     XLSX.utils.book_append_sheet(wb, ws2, 'Por Categoria');
 
-    // Aba 3: Resumo por responsável
-    const dadosResp = porResponsavel.map((r) => ({
-      Responsável: r.responsavel,
-      Quantidade: r.qtd,
-      Total: r.total,
+    const ws3 = XLSX.utils.json_to_sheet(porResponsavel.map((r) => ({
+      'Responsável': r.responsavel, Quantidade: r.qtd, Total: r.total,
       Percentual: `${((r.total / totalGeral) * 100).toFixed(1)}%`,
-    }));
-    const ws3 = XLSX.utils.json_to_sheet(dadosResp);
-    ws3['!cols'] = [{wch:20},{wch:12},{wch:14},{wch:12}];
+    })));
     XLSX.utils.book_append_sheet(wb, ws3, 'Por Responsável');
-
-    const nomeArquivo = `relatorio_gastos_${new Date().toISOString().slice(0,10)}.xlsx`;
-    XLSX.writeFile(wb, nomeArquivo);
+    XLSX.writeFile(wb, `relatorio_gastos_${new Date().toISOString().slice(0,10)}.xlsx`);
   };
 
-  // ── Exportar PDF ──
   const exportarPDF = () => {
     const doc = new jsPDF({ orientation: 'landscape' });
     const dataHoje = new Date().toLocaleDateString('pt-BR');
-
-    // Cabeçalho
-    doc.setFontSize(16);
-    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(16); doc.setFont('helvetica', 'bold');
     doc.text('Relatório de Gastos', 14, 16);
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10); doc.setFont('helvetica', 'normal');
     doc.text(`Gerado em: ${dataHoje}`, 14, 23);
     doc.text(`Filtros: ${descricaoFiltros()}`, 14, 29);
     doc.text(`Total: R$ ${totalGeral.toFixed(2).replace('.', ',')} · ${gastosFiltrados.length} lançamento(s)`, 14, 35);
-
-    // Tabela de gastos
-    doc.setFontSize(12);
-    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12); doc.setFont('helvetica', 'bold');
     doc.text('Detalhamento', 14, 44);
-
     autoTable(doc, {
       startY: 48,
       head: [['ID', 'Descrição', 'Categoria', 'Responsável', 'Parcela', 'Vencimento', 'Valor Ind.', 'Status']],
       body: gastosFiltrados.map((g) => [
-        g.id,
-        g.descricao,
-        getLookupLabel(lkCategoria, g.categoria),
-        getLookupLabel(lkResponsavel, g.responsavel),
-        g.parcela || '—',
-        g.data_venc || '—',
-        `R$ ${g.valor_individual.toFixed(2).replace('.', ',')}`,
+        g.id, g.descricao, getLookupLabel(lkCategoria, g.categoria),
+        getLookupLabel(lkResponsavel, g.responsavel), g.parcela || '—',
+        g.data_venc || '—', `R$ ${g.valor_individual.toFixed(2).replace('.', ',')}`,
         getLookupLabel(lkStatus, g.status),
       ]),
       styles: { fontSize: 8, cellPadding: 2 },
       headStyles: { fillColor: [13, 110, 253], textColor: 255, fontStyle: 'bold' },
       alternateRowStyles: { fillColor: [245, 245, 245] },
-      columnStyles: {
-        0: { cellWidth: 10 },
-        1: { cellWidth: 55 },
-        2: { cellWidth: 28 },
-        3: { cellWidth: 28 },
-        4: { cellWidth: 22 },
-        5: { cellWidth: 22 },
-        6: { cellWidth: 24 },
-        7: { cellWidth: 20 },
-      },
     });
-
-    // Resumo por categoria
     const y1 = doc.lastAutoTable.finalY + 10;
-    doc.setFontSize(12);
-    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12); doc.setFont('helvetica', 'bold');
     doc.text('Resumo por Categoria', 14, y1);
-
     autoTable(doc, {
       startY: y1 + 4,
       head: [['Categoria', 'Qtd', 'Total', '%']],
-      body: porCategoria.map((c) => [
-        c.categoria,
-        c.qtd,
-        `R$ ${c.total.toFixed(2).replace('.', ',')}`,
-        `${((c.total / totalGeral) * 100).toFixed(1)}%`,
-      ]),
+      body: porCategoria.map((c) => [c.categoria, c.qtd, `R$ ${c.total.toFixed(2).replace('.', ',')}`, `${((c.total / totalGeral) * 100).toFixed(1)}%`]),
       styles: { fontSize: 8, cellPadding: 2 },
       headStyles: { fillColor: [25, 135, 84], textColor: 255, fontStyle: 'bold' },
-      alternateRowStyles: { fillColor: [245, 245, 245] },
       tableWidth: 120,
     });
-
-    // Resumo por responsável
     const y2 = doc.lastAutoTable.finalY + 10;
-    doc.setFontSize(12);
-    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12); doc.setFont('helvetica', 'bold');
     doc.text('Resumo por Responsável', 14, y2);
-
     autoTable(doc, {
       startY: y2 + 4,
       head: [['Responsável', 'Qtd', 'Total', '%']],
-      body: porResponsavel.map((r) => [
-        r.responsavel,
-        r.qtd,
-        `R$ ${r.total.toFixed(2).replace('.', ',')}`,
-        `${((r.total / totalGeral) * 100).toFixed(1)}%`,
-      ]),
+      body: porResponsavel.map((r) => [r.responsavel, r.qtd, `R$ ${r.total.toFixed(2).replace('.', ',')}`, `${((r.total / totalGeral) * 100).toFixed(1)}%`]),
       styles: { fontSize: 8, cellPadding: 2 },
       headStyles: { fillColor: [111, 66, 193], textColor: 255, fontStyle: 'bold' },
-      alternateRowStyles: { fillColor: [245, 245, 245] },
       tableWidth: 120,
     });
-
-    const nomeArquivo = `relatorio_gastos_${new Date().toISOString().slice(0,10)}.pdf`;
-    doc.save(nomeArquivo);
+    doc.save(`relatorio_gastos_${new Date().toISOString().slice(0,10)}.pdf`);
   };
 
-  const limparFiltros = () => {
-    setFiltroMes('');
-    setFiltroStatus('');
-    setFiltroResponsavel('');
-    setFiltroAno('');
-  };
-
+  const limparFiltros = () => { setFiltroMes(''); setFiltroStatus(''); setFiltroResponsavel(''); setFiltroAno(''); };
   const filtersAtivos = filtroMes || filtroStatus || filtroResponsavel || filtroAno;
 
   if (carregando) return <p style={{ padding: '32px' }}>Carregando...</p>;
 
   return (
     <div style={{ fontFamily: 'sans-serif', padding: '32px', maxWidth: '1100px', margin: '0 auto' }}>
-
-      {/* Cabeçalho */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
         <h1 style={{ fontSize: '24px', margin: 0 }}>Relatórios</h1>
         <button onClick={onVoltar} style={btnSecundario}>← Voltar</button>
@@ -277,18 +201,13 @@ function Relatorios({ onVoltar }) {
               {lkResponsavel.map((l) => <option key={l.ID} value={l.MEANING}>{l.LOOKUP_CODE}</option>)}
             </select>
           </div>
-          <button onClick={limparFiltros} disabled={!filtersAtivos} style={{
-            background: filtersAtivos ? '#6c757d' : '#e9ecef',
-            color: filtersAtivos ? '#fff' : '#adb5bd',
-            border: 'none', borderRadius: '6px', padding: '8px 14px',
-            cursor: filtersAtivos ? 'pointer' : 'default', fontSize: '13px',
-          }}>
+          <button onClick={limparFiltros} disabled={!filtersAtivos} style={{ background: filtersAtivos ? '#6c757d' : '#e9ecef', color: filtersAtivos ? '#fff' : '#adb5bd', border: 'none', borderRadius: '6px', padding: '8px 14px', cursor: filtersAtivos ? 'pointer' : 'default', fontSize: '13px' }}>
             Limpar
           </button>
         </div>
       </div>
 
-      {/* Cards de resumo */}
+      {/* Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px', marginBottom: '24px' }}>
         <div style={card}>
           <p style={cardLabel}>Total do período</p>
@@ -297,40 +216,30 @@ function Relatorios({ onVoltar }) {
         </div>
         <div style={card}>
           <p style={cardLabel}>Maior categoria</p>
-          <p style={{ ...cardValor, color: '#198754', fontSize: '20px' }}>
-            {porCategoria[0]?.categoria || '—'}
-          </p>
-          <p style={cardSub}>
-            {porCategoria[0] ? `R$ ${porCategoria[0].total.toFixed(2).replace('.', ',')}` : '—'}
-          </p>
+          <p style={{ ...cardValor, color: '#198754', fontSize: '20px' }}>{porCategoria[0]?.categoria || '—'}</p>
+          <p style={cardSub}>{porCategoria[0] ? `R$ ${porCategoria[0].total.toFixed(2).replace('.', ',')}` : '—'}</p>
         </div>
         <div style={card}>
           <p style={cardLabel}>Exportar</p>
           <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
-            <button onClick={exportarExcel} style={{ ...btnExportar, background: '#198754' }}>
-              📊 Excel
-            </button>
-            <button onClick={exportarPDF} style={{ ...btnExportar, background: '#dc3545' }}>
-              📄 PDF
-            </button>
+            <button onClick={exportarExcel} style={{ ...btnExportar, background: '#198754' }}>📊 Excel</button>
+            <button onClick={exportarPDF} style={{ ...btnExportar, background: '#dc3545' }}>📄 PDF</button>
           </div>
           <p style={cardSub}>{gastosFiltrados.length} registro(s) serão exportados</p>
         </div>
       </div>
 
-      {/* Resumo por categoria */}
+      {/* Por categoria */}
       <div style={secao}>
         <h2 style={tituloSecao}>Por Categoria</h2>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
-          <thead>
-            <tr style={{ background: '#f5f5f5' }}>
-              <th style={th}>Categoria</th>
-              <th style={{ ...th, textAlign: 'right' }}>Qtd</th>
-              <th style={{ ...th, textAlign: 'right' }}>Total</th>
-              <th style={{ ...th, textAlign: 'right' }}>%</th>
-              <th style={th}>Participação</th>
-            </tr>
-          </thead>
+          <thead><tr style={{ background: '#f5f5f5' }}>
+            <th style={th}>Categoria</th>
+            <th style={{ ...th, textAlign: 'right' }}>Qtd</th>
+            <th style={{ ...th, textAlign: 'right' }}>Total</th>
+            <th style={{ ...th, textAlign: 'right' }}>%</th>
+            <th style={th}>Participação</th>
+          </tr></thead>
           <tbody>
             {porCategoria.map((c) => (
               <tr key={c.categoria} style={{ borderBottom: '1px solid #eee' }}>
@@ -338,30 +247,24 @@ function Relatorios({ onVoltar }) {
                 <td style={{ ...td, textAlign: 'right' }}>{c.qtd}</td>
                 <td style={{ ...td, textAlign: 'right' }}>R$ {c.total.toFixed(2).replace('.', ',')}</td>
                 <td style={{ ...td, textAlign: 'right' }}>{((c.total / totalGeral) * 100).toFixed(1)}%</td>
-                <td style={td}>
-                  <div style={{ background: '#e9ecef', borderRadius: '4px', height: '8px' }}>
-                    <div style={{ background: '#0d6efd', borderRadius: '4px', height: '8px', width: `${(c.total / totalGeral) * 100}%` }} />
-                  </div>
-                </td>
+                <td style={td}><div style={{ background: '#e9ecef', borderRadius: '4px', height: '8px' }}><div style={{ background: '#0d6efd', borderRadius: '4px', height: '8px', width: `${(c.total / totalGeral) * 100}%` }} /></div></td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
 
-      {/* Resumo por responsável */}
+      {/* Por responsável */}
       <div style={secao}>
         <h2 style={tituloSecao}>Por Responsável</h2>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
-          <thead>
-            <tr style={{ background: '#f5f5f5' }}>
-              <th style={th}>Responsável</th>
-              <th style={{ ...th, textAlign: 'right' }}>Qtd</th>
-              <th style={{ ...th, textAlign: 'right' }}>Total</th>
-              <th style={{ ...th, textAlign: 'right' }}>%</th>
-              <th style={th}>Participação</th>
-            </tr>
-          </thead>
+          <thead><tr style={{ background: '#f5f5f5' }}>
+            <th style={th}>Responsável</th>
+            <th style={{ ...th, textAlign: 'right' }}>Qtd</th>
+            <th style={{ ...th, textAlign: 'right' }}>Total</th>
+            <th style={{ ...th, textAlign: 'right' }}>%</th>
+            <th style={th}>Participação</th>
+          </tr></thead>
           <tbody>
             {porResponsavel.map((r) => (
               <tr key={r.responsavel} style={{ borderBottom: '1px solid #eee' }}>
@@ -369,34 +272,23 @@ function Relatorios({ onVoltar }) {
                 <td style={{ ...td, textAlign: 'right' }}>{r.qtd}</td>
                 <td style={{ ...td, textAlign: 'right' }}>R$ {r.total.toFixed(2).replace('.', ',')}</td>
                 <td style={{ ...td, textAlign: 'right' }}>{((r.total / totalGeral) * 100).toFixed(1)}%</td>
-                <td style={td}>
-                  <div style={{ background: '#e9ecef', borderRadius: '4px', height: '8px' }}>
-                    <div style={{ background: '#6f42c1', borderRadius: '4px', height: '8px', width: `${(r.total / totalGeral) * 100}%` }} />
-                  </div>
-                </td>
+                <td style={td}><div style={{ background: '#e9ecef', borderRadius: '4px', height: '8px' }}><div style={{ background: '#6f42c1', borderRadius: '4px', height: '8px', width: `${(r.total / totalGeral) * 100}%` }} /></div></td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
 
-      {/* Tabela detalhada */}
+      {/* Detalhamento */}
       <div style={secao}>
         <h2 style={tituloSecao}>Detalhamento — {gastosFiltrados.length} registro(s)</h2>
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
-            <thead>
-              <tr style={{ background: '#f5f5f5' }}>
-                <th style={th}>ID</th>
-                <th style={th}>Descrição</th>
-                <th style={th}>Categoria</th>
-                <th style={th}>Responsável</th>
-                <th style={th}>Parcela</th>
-                <th style={th}>Vencimento</th>
-                <th style={{ ...th, textAlign: 'right' }}>Valor Ind.</th>
-                <th style={th}>Status</th>
-              </tr>
-            </thead>
+            <thead><tr style={{ background: '#f5f5f5' }}>
+              <th style={th}>ID</th><th style={th}>Descrição</th><th style={th}>Categoria</th>
+              <th style={th}>Responsável</th><th style={th}>Parcela</th><th style={th}>Vencimento</th>
+              <th style={{ ...th, textAlign: 'right' }}>Valor Ind.</th><th style={th}>Status</th>
+            </tr></thead>
             <tbody>
               {gastosFiltrados.map((g) => (
                 <tr key={g.id} style={{ borderBottom: '1px solid #eee' }}>
@@ -408,11 +300,7 @@ function Relatorios({ onVoltar }) {
                   <td style={td}>{g.data_venc || '—'}</td>
                   <td style={{ ...td, textAlign: 'right' }}>R$ {g.valor_individual.toFixed(2).replace('.', ',')}</td>
                   <td style={td}>
-                    <span style={{
-                      background: g.status === 'PENDENTE' ? '#fff3cd' : '#d4edda',
-                      color: g.status === 'PENDENTE' ? '#856404' : '#155724',
-                      padding: '2px 8px', borderRadius: '4px', fontSize: '12px',
-                    }}>
+                    <span style={{ background: g.status === 'PENDENTE' ? '#fff3cd' : '#d4edda', color: g.status === 'PENDENTE' ? '#856404' : '#155724', padding: '2px 8px', borderRadius: '4px', fontSize: '12px' }}>
                       {getLookupLabel(lkStatus, g.status)}
                     </span>
                   </td>
@@ -422,7 +310,6 @@ function Relatorios({ onVoltar }) {
           </table>
         </div>
       </div>
-
     </div>
   );
 }
