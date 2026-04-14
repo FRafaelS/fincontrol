@@ -11,7 +11,19 @@ import Relatorios from './Relatorios';
 import { classificarVencimento, diasParaVencer } from './utils/datas';
 
 const formatarMoeda = (valor) => {
-  return Number(valor || 0).toLocaleString('pt-BR', {
+  if (valor === null || valor === undefined || valor === '') return 'R$ 0,00';
+
+  // remove "R$", espaços e formatação
+  const numero = Number(
+    String(valor)
+      .replace(/[R$\s]/g, '')
+      .replace(/\./g, '')
+      .replace(',', '.')
+  );
+
+  if (isNaN(numero)) return 'R$ 0,00';
+
+  return numero.toLocaleString('pt-BR', {
     style: 'currency',
     currency: 'BRL',
   });
