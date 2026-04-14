@@ -11,7 +11,7 @@ import Relatorios from './Relatorios';
 import { classificarVencimento, diasParaVencer } from './utils/datas';
 
 const formatarMoeda = (valor) => {
-  if (valor === null || valor === undefined || valor === '') return '0,00';
+  if (valor === null || valor === undefined || valor === '') return 'R$ 0,00';
 
   // remove "R$", espaços e formatação
   const numero = Number(
@@ -21,7 +21,7 @@ const formatarMoeda = (valor) => {
       .replace(',', '.')
   );
 
-  if (isNaN(numero)) return '0,00';
+  if (isNaN(numero)) return 'R$ 0,00';
 
   return numero.toLocaleString('pt-BR', {
     style: 'currency',
@@ -361,7 +361,7 @@ function App() {
       {/* Cards de resumo */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '20px' }}>
         {[
-          { label: 'Total do período',  valor: `R$ ${formatarMoeda(total.toFixed(2).replace('.', ','))}`, sub: `${gastosFiltrados.length} lançamentos`, cor: '#1d4ed8', icone: '💰' },
+          { label: 'Total do período',  valor: `${formatarMoeda(total.toFixed(2).replace('.', ','))}`, sub: `${gastosFiltrados.length} lançamentos`, cor: '#1d4ed8', icone: '💰' },
           { label: 'Vencidos',          valor: vencidos.length,    sub: 'precisam de atenção', cor: '#dc2626', icone: '🔴' },
           { label: 'Vencem hoje',       valor: vencem_hoje.length, sub: 'pague hoje',           cor: '#d97706', icone: '🟡' },
           { label: 'Próx. vencimentos', valor: proximos.length,    sub: `nos próx. ${diasAlerta} dias`, cor: '#ea580c', icone: '🟠' },
@@ -462,7 +462,7 @@ function App() {
             {gastosFiltrados.length} registro(s)
             {selecionados.length > 0 && <strong style={{ color: '#1d4ed8', marginLeft: '8px' }}> · {selecionados.length} selecionado(s)</strong>}
           </span>
-          <span style={{ fontSize: '14px', fontWeight: '700', color: '#1e293b' }}>Total: R$ {formatarMoeda(total.toFixed(2).replace('.', ','))}</span>
+          <span style={{ fontSize: '14px', fontWeight: '700', color: '#1e293b' }}>Total: {formatarMoeda(total.toFixed(2).replace('.', ','))}</span>
         </div>
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
@@ -503,7 +503,7 @@ function App() {
                       {g.status !== 'PAGO' && tipoVenc === 'hoje' && <span style={{ marginLeft: '6px', fontSize: '11px', background: '#d97706', color: '#fff', padding: '2px 7px', borderRadius: '20px' }}>hoje</span>}
                       {g.status !== 'PAGO' && tipoVenc === 'proximo' && <span style={{ marginLeft: '6px', fontSize: '11px', background: '#ea580c', color: '#fff', padding: '2px 7px', borderRadius: '20px' }}>{dias}d</span>}
                     </td>
-                    <td style={{ ...td, textAlign: 'right', fontWeight: '600', color: '#1e293b' }}>R$ {formatarMoeda(g.valor_individual.toFixed(2).replace('.', ','))}</td>
+                    <td style={{ ...td, textAlign: 'right', fontWeight: '600', color: '#1e293b' }}>{formatarMoeda(g.valor_individual.toFixed(2).replace('.', ','))}</td>
                     <td style={td}>
                       <span style={{ background: g.status === 'PENDENTE' ? '#eff6ff' : '#f0fdf4', color: g.status === 'PENDENTE' ? '#1d4ed8' : '#059669', border: `1px solid ${g.status === 'PENDENTE' ? '#bfdbfe' : '#bbf7d0'}`, padding: '3px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: '500' }}>
                         {getLookupLabel(lkStatus, g.status)}
