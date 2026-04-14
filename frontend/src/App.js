@@ -11,7 +11,7 @@ import Relatorios from './Relatorios';
 import { classificarVencimento, diasParaVencer } from './utils/datas';
 
 const formatarMoeda = (valor) => {
-  if (valor === null || valor === undefined || valor === '') return 'R$ 0,00';
+  if (valor === null || valor === undefined || valor === '') return '0,00';
 
   // remove "R$", espaços e formatação
   const numero = Number(
@@ -21,7 +21,7 @@ const formatarMoeda = (valor) => {
       .replace(',', '.')
   );
 
-  if (isNaN(numero)) return 'R$ 0,00';
+  if (isNaN(numero)) return '0,00';
 
   return numero.toLocaleString('pt-BR', {
     style: 'currency',
