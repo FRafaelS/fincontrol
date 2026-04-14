@@ -3,13 +3,13 @@ import * as XLSX from 'xlsx';
 import API_URL from './api';
 
 const CAMPOS_SISTEMA = [
-  { value: '', label: '— Ignorar coluna —' },
+  { value: '', label: '— Ignorar —' },
   { value: 'responsavel', label: 'Responsável' },
-  { value: 'tipo', label: 'Tipo (I/C)' },
+  { value: 'tipo', label: 'Tipo' },
   { value: 'descricao', label: 'Descrição' },
   { value: 'parcela', label: 'Parcela' },
   { value: 'categoria', label: 'Categoria' },
-  { value: 'forma_pgto', label: 'Forma de Pagamento' },
+  { value: 'forma_pgto', label: 'Forma Pagamento' },
   { value: 'valor_total', label: 'Valor Total' },
   { value: 'valor_individual', label: 'Valor Individual' },
   { value: 'data_venc', label: 'Data Vencimento' },
@@ -19,25 +19,26 @@ const CAMPOS_SISTEMA = [
   { value: 'obs', label: 'Observação' },
 ];
 
+// 🧠 Auto mapeamento
 const mapearAutomatico = (coluna) => {
-  const c = coluna.toLowerCase().trim();
+  const c = coluna.toLowerCase();
   if (c.includes('resp')) return 'responsavel';
   if (c.includes('tipo')) return 'tipo';
   if (c.includes('desc')) return 'descricao';
   if (c.includes('parcela')) return 'parcela';
   if (c.includes('categ')) return 'categoria';
-  if (c.includes('pgto') || c.includes('forma')) return 'forma_pgto';
+  if (c.includes('pgto')) return 'forma_pgto';
   if (c.includes('total')) return 'valor_total';
   if (c.includes('individual')) return 'valor_individual';
   if (c.includes('venc')) return 'data_venc';
-  if (c === 'mes' || c === 'mês') return 'mes';
-  if (c === 'ano') return 'ano';
+  if (c.includes('mes')) return 'mes';
+  if (c.includes('ano')) return 'ano';
   if (c.includes('status')) return 'status';
   if (c.includes('obs')) return 'obs';
   return '';
 };
 
-// 💰 Conversão BR → número
+// 💰 Corrige número BR
 const parseBR = (v) => {
   if (!v) return 0;
   return parseFloat(
@@ -47,25 +48,20 @@ const parseBR = (v) => {
   ) || 0;
 };
 
-// 📅 Converter data Excel
+// 📅 Data Excel
 const converterDataExcel = (valor) => {
   if (!valor) return '';
   if (typeof valor === 'string') return valor;
-  if (typeof valor === 'number') {
-    const data = new Date((valor - 25569) * 86400 * 1000);
-    const dia = String(data.getUTCDate()).padStart(2, '0');
-    const mes = String(data.getUTCMonth() + 1).padStart(2, '0');
-    const ano = data.getUTCFullYear();
-    return `${ano}-${mes}-${dia}`; // formato melhor
-  }
-  return '';
+
+  const data = new Date((valor - 25569) * 86400 * 1000);
+  return data.toISOString().split('T')[0];
 };
 
-function Importacao({ onVoltar, token }) {
+function Importacao({ token, onVoltar }) {
   const [etapa, setEtapa] = useState('upload');
   const [colunas, setColunas] = useState([]);
-  const [mapeamento, setMapeamento] = useState({});
   const [linhas, setLinhas] = useState([]);
+  const [mapeamento, setMapeamento] = useState({});
   const [preview, setPreview] = useState([]);
   const [resultado, setResultado] = useState(null);
 
@@ -74,17 +70,26 @@ function Importacao({ onVoltar, token }) {
     Authorization: `Bearer ${token}`,
   };
 
+  // =========================
+  // 📂 Upload arquivo
+  // =========================
   const handleArquivo = (e) => {
-    const arquivo = e.target.files[0];
-    if (!arquivo) return;
+    const file = e.target.files[0];
+    if (!file) return;
 
     const reader = new FileReader();
+
     reader.onload = (evt) => {
       const workbook = XLSX.read(evt.target.result, { type: 'binary' });
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
       const dados = XLSX.utils.sheet_to_json(sheet, { defval: '' });
 
-      const cols = Object.keys(dados[0] || {});
+      if (!dados.length) {
+        alert('Planilha vazia');
+        return;
+      }
+
+      const cols = Object.keys(dados[0]);
       const mapAuto = {};
 
       cols.forEach((c) => {
@@ -92,78 +97,75 @@ function Importacao({ onVoltar, token }) {
       });
 
       setColunas(cols);
-      setMapeamento(mapAuto);
       setLinhas(dados);
+      setMapeamento(mapAuto);
       setEtapa('mapeamento');
     };
 
-    reader.readAsBinaryString(arquivo);
+    reader.readAsBinaryString(file);
   };
 
+  // =========================
+  // 👀 Gerar preview
+  // =========================
   const gerarPreview = () => {
-    const registros = linhas.map((linha) => {
+    const dadosPreview = linhas.map((linha) => {
       const registro = {};
 
-      Object.entries(mapeamento).forEach(([coluna, campo]) => {
-        if (campo) {
-          registro[campo] =
-            campo === 'data_venc'
-              ? converterDataExcel(linha[coluna])
-              : linha[coluna];
+      Object.entries(mapeamento).forEach(([col, campo]) => {
+        if (!campo) return;
+
+        let valor = linha[col];
+
+        if (campo === 'valor_total' || campo === 'valor_individual') {
+          valor = parseBR(valor);
         }
+
+        if (campo === 'data_venc') {
+          valor = converterDataExcel(valor);
+        }
+
+        registro[campo] = valor;
       });
 
       return registro;
     });
 
-    console.log('Preview:', registros);
-
-    setPreview(registros);
+    setPreview(dadosPreview);
     setEtapa('revisao');
   };
 
-  const confirmarImportacao = async () => {
+  // =========================
+  // 🚀 Importar
+  // =========================
+  const importar = async () => {
     let sucesso = 0;
     let erros = 0;
     const errosList = [];
 
-    for (const registro of preview) {
+    for (const reg of preview) {
       try {
-        // 🧠 Validação mínima
-        if (!registro.descricao) {
-          throw new Error('Registro sem descrição');
-        }
-
-        console.log('Enviando:', registro);
+        if (!reg.descricao) throw new Error('Sem descrição');
 
         const res = await fetch(`${API_URL}/api/gastos`, {
           method: 'POST',
           headers,
           body: JSON.stringify({
-            ...registro,
-            valor_total: parseBR(registro.valor_total),
-            valor_individual: parseBR(registro.valor_individual),
-            ano: parseInt(registro.ano) || new Date().getFullYear(),
-            status: registro.status || 'PENDENTE',
+            ...reg,
+            valor_total: Number(reg.valor_total || 0),
+            valor_individual: Number(reg.valor_individual || 0),
           }),
         });
 
-        // 🚨 TRATAMENTO REAL DE ERRO
         if (!res.ok) {
           const text = await res.text();
-          throw new Error(`HTTP ${res.status} - ${text}`);
-        }
-
-        const data = await res.json();
-
-        if (data.erro) {
-          throw new Error(data.erro);
+          throw new Error(text);
         }
 
         sucesso++;
       } catch (err) {
         erros++;
-        errosList.push(`${registro.descricao || 'Sem descrição'} → ${err.message}`);
+        errosList.push(`${reg.descricao || 'Linha'} → ${err.message}`);
       }
     }
 
@@ -171,34 +173,62 @@ function Importacao({ onVoltar, token }) {
     setEtapa('resultado');
   };
 
+  // =========================
+  // 🖥️ Render
+  // =========================
   return (
     <div style={{ padding: 20 }}>
-      <h1>Importar Excel</h1>
+      <h1>Importação de Gastos</h1>
 
       {etapa === 'upload' && (
-        <input type="file" accept=".xlsx,.xls" onChange={handleArquivo} />
+        <>
+          <input type="file" accept=".xlsx,.xls" onChange={handleArquivo} />
+        </>
       )}
 
       {etapa === 'mapeamento' && (
-        <button onClick={gerarPreview}>Avançar</button>
+        <>
+          <h3>Mapeamento</h3>
+          {colunas.map((col) => (
+            <div key={col}>
+              <label>{col}</label>
+              <select
+                value={mapeamento[col] || ''}
+                onChange={(e) =>
+                  setMapeamento({ ...mapeamento, [col]: e.target.value })
+                }
+              >
+                {CAMPOS_SISTEMA.map((c) => (
+                  <option key={c.value} value={c.value}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ))}
+
+          <button onClick={gerarPreview}>Avançar</button>
+        </>
       )}
 
       {etapa === 'revisao' && (
         <>
-          <p>{preview.length} registros</p>
-          <button onClick={confirmarImportacao}>Importar</button>
+          <h3>Preview ({(preview || []).length} registros)</h3>
+          <button onClick={importar}>Confirmar Importação</button>
         </>
       )}
 
       {etapa === 'resultado' && resultado && (
         <>
-          <h2>Resultado</h2>
+          <h3>Resultado</h3>
           <p>Sucesso: {resultado.sucesso}</p>
           <p>Erros: {resultado.erros}</p>
 
-          {resultado.errosList.map((e, i) => (
+          {(resultado.errosList || []).map((e, i) => (
             <p key={i}>{e}</p>
           ))}
+
+          <button onClick={onVoltar}>Voltar</button>
         </>
       )}
     </div>
