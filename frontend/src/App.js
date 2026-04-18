@@ -10,6 +10,8 @@ import Parcelas from './Parcelas';
 import Relatorios from './Relatorios';
 import { classificarVencimento, diasParaVencer } from './utils/datas';
 
+const fmt = (v) => parseFloat(v || 0).toFixed(2).replace('.', ',');
+
 const formatarMoeda = (valor) => {
   if (valor === null || valor === undefined || valor === '') return 'R$ 0,00';
 
@@ -308,7 +310,7 @@ function App() {
 
   const renderPagina = () => {
     if (pagina === 'dashboard')  return <Dashboard gastos={gastos} onVoltar={() => setPagina('gastos')} />;
-    if (pagina === 'parametros') return <Lookups onVoltar={() => { setPagina('gastos'); buscarTodasLookups(); }} />;
+    if (pagina === 'parametros') return <Lookups onVoltar={() => { setPagina('gastos'); buscarTodasLookups(); }} token={token} />;
     if (pagina === 'importacao') return <Importacao onVoltar={() => { setPagina('gastos'); buscarGastos(); }} token={token} />;
     if (pagina === 'parcelas')   return <Parcelas onVoltar={() => { setPagina('gastos'); buscarGastos(); }} token={token} />;
     if (pagina === 'relatorios') return <Relatorios onVoltar={() => setPagina('gastos')} token={token} />;
@@ -503,7 +505,7 @@ function App() {
                       {g.status !== 'PAGO' && tipoVenc === 'hoje' && <span style={{ marginLeft: '6px', fontSize: '11px', background: '#d97706', color: '#fff', padding: '2px 7px', borderRadius: '20px' }}>hoje</span>}
                       {g.status !== 'PAGO' && tipoVenc === 'proximo' && <span style={{ marginLeft: '6px', fontSize: '11px', background: '#ea580c', color: '#fff', padding: '2px 7px', borderRadius: '20px' }}>{dias}d</span>}
                     </td>
-                    <td style={{ ...td, textAlign: 'right', fontWeight: '600', color: '#1e293b' }}>{formatarMoeda(g.valor_individual.toFixed(2).replace('.', ','))}</td>
+                    <td style={{ ...td, textAlign: 'right', fontWeight: '600', color: '#1e293b' }}>{formatarMoeda(parseFloat(g.valor_individual || 0).toFixed(2).replace(".", ","))}</td>
                     <td style={td}>
                       <span style={{ background: g.status === 'PENDENTE' ? '#eff6ff' : '#f0fdf4', color: g.status === 'PENDENTE' ? '#1d4ed8' : '#059669', border: `1px solid ${g.status === 'PENDENTE' ? '#bfdbfe' : '#bbf7d0'}`, padding: '3px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: '500' }}>
                         {getLookupLabel(lkStatus, g.status)}
