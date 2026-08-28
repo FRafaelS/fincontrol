@@ -1,4 +1,3 @@
-const API_URL = 'https://fincontrol-api-d985.onrender.com';
+const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001';
 
 export default API_URL;
-// v2

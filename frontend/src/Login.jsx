@@ -19,7 +19,7 @@ function Login({ onLogin }) {
         body: JSON.stringify({ email, senha }),
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
         setErro(data.erro || 'Erro ao fazer login.');
@@ -57,13 +57,13 @@ function Login({ onLogin }) {
           </p>
         </div>
 
-        <div style={{ background: '#fff', borderRadius: '16px', padding: '32px', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
-          <h2 style={{ fontSize: '20px', fontWeight: '600', color: '#1e293b', margin: '0 0 24px' }}>
+        <div style={{ background: 'var(--app-surface)', borderRadius: '16px', padding: '32px', boxShadow: 'var(--app-shadow)', border: '1px solid var(--app-border)' }}>
+          <h2 style={{ fontSize: '20px', fontWeight: '700', color: 'var(--app-text)', margin: '0 0 24px' }}>
             Entrar na sua conta
           </h2>
 
           {erro && (
-            <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '12px', marginBottom: '20px', color: '#dc2626', fontSize: '14px' }}>
+            <div style={{ background: 'var(--app-danger-soft)', border: '1px solid var(--app-danger)', borderRadius: '8px', padding: '12px', marginBottom: '20px', color: 'var(--app-danger-text)', fontSize: '14px', fontWeight: '700' }}>
               ⚠️ {erro}
             </div>
           )}
@@ -77,7 +77,7 @@ function Login({ onLogin }) {
               <label style={label}>Senha</label>
               <input style={input} type="password" value={senha} onChange={(e) => setSenha(e.target.value)} placeholder="••••••••" required />
             </div>
-            <button type="submit" disabled={carregando} style={{ width: '100%', background: carregando ? '#93c5fd' : '#1d4ed8', color: '#fff', border: 'none', borderRadius: '8px', padding: '12px', fontSize: '15px', fontWeight: '600', cursor: carregando ? 'default' : 'pointer' }}>
+            <button type="submit" disabled={carregando} style={{ width: '100%', background: carregando ? 'var(--app-faint)' : 'var(--app-accent)', color: '#fff', border: 'none', borderRadius: '8px', padding: '12px', fontSize: '15px', fontWeight: '700', cursor: carregando ? 'default' : 'pointer' }}>
               {carregando ? 'Entrando...' : 'Entrar'}
             </button>
           </form>
@@ -91,7 +91,7 @@ function Login({ onLogin }) {
   );
 }
 
-const label = { display: 'block', fontSize: '13px', color: '#475569', marginBottom: '6px', fontWeight: '500' };
-const input = { width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid #dde3ec', fontSize: '14px', boxSizing: 'border-box', color: '#1e293b', outline: 'none' };
+const label = { display: 'block', fontSize: '13px', color: 'var(--app-muted)', marginBottom: '6px', fontWeight: '700' };
+const input = { width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--app-border)', fontSize: '14px', boxSizing: 'border-box', color: 'var(--app-text)', background: 'var(--app-input-bg)', outline: 'none' };
 
 export default Login;

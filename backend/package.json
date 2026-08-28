@@ -3,11 +3,12 @@
   "version": "1.0.0",
   "scripts": {
     "start": "node server.js",
-    "build": "npm rebuild better-sqlite3"
+    "dev": "nodemon server.js",
+    "build": "node -e \"console.log('Backend sem etapa de build')\"",
+    "check": "node --check server.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
-    "better-sqlite3": "^12.8.0",
     "cors": "^2.8.5",
     "dotenv": "^17.4.2",
     "express": "^4.22.1",
