@@ -2,6 +2,10 @@
 
 Este checklist prepara a primeira versao produtiva do FinControl com backend Node.js, frontend React e PostgreSQL.
 
+Na V2, o sistema trabalha com contas separadas (`tenants`). Cada familia/cliente fica na propria conta, com usuarios, grupos, parametros, receitas e despesas isolados.
+
+Ao criar uma nova conta, o sistema cria somente os tipos de parametro e configuracoes operacionais. Valores de uso da familia/cliente, como responsaveis, categorias e formas de pagamento, devem ser cadastrados na propria conta e aparecem apenas para os usuarios dessa conta.
+
 ## 1. Banco PostgreSQL
 
 Crie um banco PostgreSQL e guarde a string de conexao.
@@ -45,10 +49,14 @@ DB_SSL_REJECT_UNAUTHORIZED=false
 ADMIN_EMAIL=ps.raphael@hotmail.com
 ADMIN_INITIAL_PASSWORD=admin123
 ADMIN_FORCE_PASSWORD_CHANGE=true
+DEFAULT_TENANT_NAME=Familia Raphael
+DEFAULT_TENANT_SLUG=familia-raphael
 ENABLE_SETUP_ROUTE=false
 ENABLE_ADMIN_SQL=false
 ENABLE_ADMIN_SQL_WRITE=false
 ```
+
+O primeiro start cria a conta padrao, vincula os dados existentes a ela e transforma o email configurado em `ADMIN_EMAIL` em `SUPER_ADMIN`.
 
 Comandos:
 
@@ -72,7 +80,6 @@ Configure `frontend/.env.production` usando `frontend/.env.production.example` c
 
 ```bash
 REACT_APP_API_URL=https://sua-api.onrender.com
-REACT_APP_ENABLE_SQL_IDE=false
 CI=false
 ```
 
@@ -92,12 +99,19 @@ frontend/build
 
 ## 4. SQL IDE
 
-Em producao, deixe desligada por padrao.
+Em producao, deixe desligada por padrao. A ativacao agora fica em parametro do sistema:
 
-Para uma janela curta de manutencao:
+```text
+Configurações > Lookups > CONFIG_SISTEMA > SQL_IDE_ENABLED
+TAG = S para ligar
+TAG = N para desligar
+```
+
+A tela só aparece para `SUPER_ADMIN`. Depois de alterar a lookup, volte para o menu principal ou recarregue a aplicação.
+
+Comandos de escrita continuam travados por variavel de ambiente. Para permitir apenas `SELECT`, mantenha:
 
 ```bash
-ENABLE_ADMIN_SQL=true
 ENABLE_ADMIN_SQL_WRITE=false
 ```
 
@@ -110,7 +124,7 @@ ENABLE_ADMIN_SQL_WRITE=true
 Depois volte para:
 
 ```bash
-ENABLE_ADMIN_SQL=false
+TAG = N na lookup CONFIG_SISTEMA / SQL_IDE_ENABLED
 ENABLE_ADMIN_SQL_WRITE=false
 ```
 
@@ -127,6 +141,7 @@ Valide manualmente:
 - Login do admin inicial.
 - Troca obrigatoria da senha inicial.
 - Criacao de usuario.
+- Criacao de uma nova conta em Perfil > Contas.
 - Controle de telas em Perfil > Acessos.
 - Criacao de grupo e compartilhamento de dados.
 - Cadastro de lancamento e receita.

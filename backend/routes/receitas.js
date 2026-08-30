@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { query } = require('../database/postgres');
+const { ehAdminConta } = require('../utils/perfis');
 
 const MESES = ['JAN','FEV','MAR','ABR','MAI','JUN','JUL','AGO','SET','OUT','NOV','DEZ'];
 const TIPOS_RECEBIMENTO = ['QUINZENA', 'FINAL_MES', 'OUTRO'];
@@ -103,12 +104,17 @@ const buscarReceita = async (id) => {
 };
 
 const podeAcessarReceita = async (usuario, receita, acao = 'ver') => {
+  if (Number(receita.tenant_id) !== Number(usuario.tenant_id)) return false;
+  if (ehAdminConta(usuario)) return true;
   if (receita.usuario_id === usuario.id) return true;
   if (!receita.grupo_id) return false;
 
   const permissao = await query(
-    'SELECT pode_ver_todos, pode_editar, pode_excluir FROM usuario_grupos WHERE usuario_id = $1 AND grupo_id = $2',
-    [usuario.id, receita.grupo_id]
+    `SELECT ug.pode_ver_todos, ug.pode_editar, ug.pode_excluir
+     FROM usuario_grupos ug
+     JOIN grupos g ON g.id = ug.grupo_id
+     WHERE ug.usuario_id = $1 AND ug.grupo_id = $2 AND g.tenant_id = $3`,
+    [usuario.id, receita.grupo_id, usuario.tenant_id]
   );
   const grupo = permissao.rows[0];
   if (!grupo) return false;
@@ -122,31 +128,61 @@ const podeAcessarReceita = async (usuario, receita, acao = 'ver') => {
 const podeUsarGrupo = async (usuario, grupoId) => {
   if (!grupoId) return true;
 
+  if (ehAdminConta(usuario)) {
+    const grupo = await query('SELECT id FROM grupos WHERE id = $1 AND tenant_id = $2', [grupoId, usuario.tenant_id]);
+    return grupo.rows.length > 0;
+  }
+
   const permissao = await query(
-    'SELECT pode_editar FROM usuario_grupos WHERE usuario_id = $1 AND grupo_id = $2',
-    [usuario.id, grupoId]
+    `SELECT ug.pode_editar
+     FROM usuario_grupos ug
+     JOIN grupos g ON g.id = ug.grupo_id
+     WHERE ug.usuario_id = $1 AND ug.grupo_id = $2 AND g.tenant_id = $3`,
+    [usuario.id, grupoId, usuario.tenant_id]
   );
 
   return Boolean(permissao.rows[0]) && habilitado(permissao.rows[0].pode_editar);
 };
 
 const buscarGrupoPadraoEdicao = async (usuario) => {
+  if (ehAdminConta(usuario)) {
+    const result = await query(
+      `SELECT id AS grupo_id
+       FROM grupos
+       WHERE tenant_id = $1
+       ORDER BY CASE WHEN criado_por = $2 THEN 0 ELSE 1 END, id
+       LIMIT 1`,
+      [usuario.tenant_id, usuario.id]
+    );
+
+    return result.rows[0]?.grupo_id || null;
+  }
+
   const result = await query(
-    `SELECT grupo_id
-     FROM usuario_grupos
-     WHERE usuario_id = $1 AND pode_editar = 1
-     ORDER BY CASE WHEN permissao = 'ADMIN' THEN 0 ELSE 1 END, id
+    `SELECT ug.grupo_id
+     FROM usuario_grupos ug
+     JOIN grupos g ON g.id = ug.grupo_id
+     WHERE ug.usuario_id = $1 AND ug.pode_editar = 1 AND g.tenant_id = $2
+     ORDER BY CASE WHEN ug.permissao = 'ADMIN' THEN 0 ELSE 1 END, ug.id
      LIMIT 1`,
-    [usuario.id]
+    [usuario.id, usuario.tenant_id]
   );
 
   return result.rows[0]?.grupo_id || null;
 };
 
 const gruposVisiveisUsuario = async (usuario) => {
+  if (ehAdminConta(usuario)) {
+    const grupos = await query('SELECT id AS grupo_id FROM grupos WHERE tenant_id = $1 ORDER BY nome', [usuario.tenant_id]);
+    return grupos.rows.map((g) => g.grupo_id);
+  }
+
   const grupos = await query(
-    'SELECT ug.grupo_id, ug.pode_ver_todos FROM usuario_grupos ug WHERE ug.usuario_id = $1',
-    [usuario.id]
+    `SELECT ug.grupo_id, ug.pode_ver_todos
+     FROM usuario_grupos ug
+     JOIN grupos g ON g.id = ug.grupo_id
+     WHERE ug.usuario_id = $1 AND g.tenant_id = $2`,
+    [usuario.id, usuario.tenant_id]
   );
 
   return grupos.rows.filter((g) => habilitado(g.pode_ver_todos)).map((g) => g.grupo_id);
@@ -155,13 +191,20 @@ const gruposVisiveisUsuario = async (usuario) => {
 router.get('/', async (req, res) => {
   try {
     const { id } = req.usuario;
+    const tenantId = req.usuario.tenant_id;
+    if (ehAdminConta(req.usuario)) {
+      const result = await query('SELECT * FROM receitas WHERE tenant_id = $1 ORDER BY id DESC', [tenantId]);
+      res.json(result.rows);
+      return;
+    }
+
     const gruposVerTodos = await gruposVisiveisUsuario(req.usuario);
     const result = gruposVerTodos.length > 0
       ? await query(
-          'SELECT * FROM receitas WHERE grupo_id = ANY($1::int[]) OR usuario_id = $2 ORDER BY id DESC',
-          [gruposVerTodos, id]
+          'SELECT * FROM receitas WHERE tenant_id = $3 AND (grupo_id = ANY($1::int[]) OR usuario_id = $2) ORDER BY id DESC',
+          [gruposVerTodos, id, tenantId]
         )
-      : await query('SELECT * FROM receitas WHERE usuario_id = $1 ORDER BY id DESC', [id]);
+      : await query('SELECT * FROM receitas WHERE tenant_id = $2 AND usuario_id = $1 ORDER BY id DESC', [id, tenantId]);
 
     res.json(result.rows);
   } catch (err) {
@@ -197,10 +240,10 @@ router.post('/', async (req, res) => {
     }
 
     const result = await query(
-      `INSERT INTO receitas (usuario_id, grupo_id, responsavel, descricao, valor, data_receita,
+      `INSERT INTO receitas (usuario_id, grupo_id, tenant_id, responsavel, descricao, valor, data_receita,
         mes, ano, tipo_recebimento, obs)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
-      [req.usuario.id, payload.grupo_id, payload.responsavel, payload.descricao, payload.valor,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
+      [req.usuario.id, payload.grupo_id, req.usuario.tenant_id, payload.responsavel, payload.descricao, payload.valor,
        payload.data_receita, payload.mes, payload.ano, payload.tipo_recebimento,
        payload.obs]
     );
@@ -232,9 +275,9 @@ router.put('/:id', async (req, res) => {
     await query(
       `UPDATE receitas SET grupo_id=$1, responsavel=$2, descricao=$3, valor=$4, data_receita=$5,
         mes=$6, ano=$7, tipo_recebimento=$8, obs=$9, updated_at=CURRENT_TIMESTAMP
-       WHERE id=$10`,
+       WHERE id=$10 AND tenant_id=$11`,
       [grupoIdFinal, payload.responsavel, payload.descricao, payload.valor, payload.data_receita,
-       payload.mes, payload.ano, payload.tipo_recebimento, payload.obs, req.params.id]
+       payload.mes, payload.ano, payload.tipo_recebimento, payload.obs, req.params.id, req.usuario.tenant_id]
     );
     res.json({ sucesso: true });
   } catch (err) {
@@ -250,7 +293,7 @@ router.delete('/:id', async (req, res) => {
       return res.status(403).json({ erro: 'Você não tem permissão para excluir esta receita.' });
     }
 
-    await query('DELETE FROM receitas WHERE id = $1', [req.params.id]);
+    await query('DELETE FROM receitas WHERE id = $1 AND tenant_id = $2', [req.params.id, req.usuario.tenant_id]);
     res.json({ sucesso: true });
   } catch (err) {
     res.status(500).json({ erro: err.message });

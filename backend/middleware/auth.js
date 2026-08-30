@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const { query } = require('../database/postgres');
 const { JWT_SECRET: SECRET } = require('../config/env');
+const { ehAdminConta, ehSuperAdmin } = require('../utils/perfis');
 
 const autenticar = (req, res, next) => {
   const authHeader = req.headers['authorization'];
@@ -20,8 +21,15 @@ const autenticar = (req, res, next) => {
 };
 
 const apenasAdmin = (req, res, next) => {
-  if (req.usuario?.perfil !== 'ADMIN') {
+  if (!ehAdminConta(req.usuario)) {
     return res.status(403).json({ erro: 'Acesso restrito a administradores.' });
+  }
+  next();
+};
+
+const apenasSuperAdmin = (req, res, next) => {
+  if (!ehSuperAdmin(req.usuario)) {
+    return res.status(403).json({ erro: 'Acesso restrito ao administrador da plataforma.' });
   }
   next();
 };
@@ -30,11 +38,26 @@ const habilitado = (valor) => valor === true || valor === 1 || valor === '1' || 
 
 const exigirSenhaDefinitiva = async (req, res, next) => {
   try {
-    const result = await query('SELECT senha_temporaria FROM usuarios WHERE id = $1 AND ativo = 1', [req.usuario?.id]);
+    const result = await query(
+      `SELECT u.id, u.nome, u.email, u.perfil, u.tenant_id, u.senha_temporaria,
+        t.nome AS tenant_nome, t.ativo AS tenant_ativo
+       FROM usuarios u
+       LEFT JOIN tenants t ON t.id = u.tenant_id
+       WHERE u.id = $1 AND u.ativo = 1`,
+      [req.usuario?.id]
+    );
     const usuario = result.rows[0];
 
     if (!usuario) {
       return res.status(401).json({ erro: 'Usuário não encontrado ou inativo.' });
+    }
+
+    if (!usuario.tenant_id) {
+      return res.status(403).json({ erro: 'Usuário sem conta vinculada.' });
+    }
+
+    if (!habilitado(usuario.tenant_ativo)) {
+      return res.status(403).json({ erro: 'Conta inativa.' });
     }
 
     if (habilitado(usuario.senha_temporaria)) {
@@ -44,6 +67,16 @@ const exigirSenhaDefinitiva = async (req, res, next) => {
       });
     }
 
+    req.usuario = {
+      ...req.usuario,
+      id: usuario.id,
+      nome: usuario.nome,
+      email: usuario.email,
+      perfil: usuario.perfil,
+      tenant_id: usuario.tenant_id,
+      tenant_nome: usuario.tenant_nome,
+    };
+
     next();
   } catch (err) {
     return res.status(500).json({ erro: err.message });
@@ -52,7 +85,7 @@ const exigirSenhaDefinitiva = async (req, res, next) => {
 
 const exigirAlgumaTela = (telas = []) => async (req, res, next) => {
   const listaTelas = Array.isArray(telas) ? telas.filter(Boolean) : [telas].filter(Boolean);
-  if (listaTelas.length === 0 || req.usuario?.perfil === 'ADMIN') {
+  if (listaTelas.length === 0 || ehAdminConta(req.usuario)) {
     next();
     return;
   }
@@ -78,4 +111,12 @@ const exigirAlgumaTela = (telas = []) => async (req, res, next) => {
 
 const exigirTela = (tela) => exigirAlgumaTela([tela]);
 
-module.exports = { autenticar, apenasAdmin, exigirSenhaDefinitiva, exigirTela, exigirAlgumaTela, SECRET };
+module.exports = {
+  autenticar,
+  apenasAdmin,
+  apenasSuperAdmin,
+  exigirSenhaDefinitiva,
+  exigirTela,
+  exigirAlgumaTela,
+  SECRET,
+};

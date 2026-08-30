@@ -4,9 +4,9 @@ const express = require('express');
 const cors = require('cors');
 const {
   admin,
-  adminSql,
   corsOptions,
   setupRouteEnabled,
+  tenant,
   validarAmbiente,
 } = require('./config/env');
 
@@ -20,8 +20,14 @@ const parcelasRoutes = require('./routes/parcelas');
 const authRoutes = require('./routes/auth');
 const gruposRoutes = require('./routes/grupos');
 const adminSqlRoutes = require('./routes/adminSql');
-const { autenticar, apenasAdmin, exigirSenhaDefinitiva, exigirTela, exigirAlgumaTela } = require('./middleware/auth');
-const { TELAS_PADRAO_ADMIN } = require('./config/telas');
+const tenantsRoutes = require('./routes/tenants');
+const { autenticar, apenasSuperAdmin, exigirSenhaDefinitiva, exigirTela, exigirAlgumaTela } = require('./middleware/auth');
+const { TELAS_PADRAO_SUPER_ADMIN } = require('./config/telas');
+const {
+  garantirLookupsPadrao,
+  garantirTenantPadrao,
+  limparLookupsExemploOutrasContas,
+} = require('./services/tenants');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -35,13 +41,8 @@ app.use('/api/receitas', autenticar, exigirSenhaDefinitiva, exigirAlgumaTela(['d
 app.use('/api/lookups',  autenticar, exigirSenhaDefinitiva, lookupsRoutes);
 app.use('/api/parcelas', autenticar, exigirSenhaDefinitiva, exigirTela('parcelas'), parcelasRoutes);
 app.use('/api/grupos',   autenticar, exigirSenhaDefinitiva, gruposRoutes);
-if (adminSql.enabled) {
-  app.use('/api/admin-sql', autenticar, exigirSenhaDefinitiva, apenasAdmin, exigirTela('sql'), adminSqlRoutes);
-} else {
-  app.use('/api/admin-sql', autenticar, exigirSenhaDefinitiva, apenasAdmin, (req, res) => {
-    res.status(403).json({ erro: 'SQL IDE desativada neste ambiente.' });
-  });
-}
+app.use('/api/tenants',  autenticar, exigirSenhaDefinitiva, apenasSuperAdmin, tenantsRoutes);
+app.use('/api/admin-sql', autenticar, exigirSenhaDefinitiva, apenasSuperAdmin, adminSqlRoutes);
 
 app.get('/', (req, res) => res.json({ mensagem: 'API FinControl funcionando!', versao: '2.0' }));
 app.get('/health', (req, res) => res.json({ status: 'ok', app: 'FinControl', uptime: Math.round(process.uptime()) }));
@@ -56,57 +57,9 @@ app.get('/ready', async (req, res) => {
 
 const setupHandler = async (req, res) => {
   try {
-    // Insere lookups padrão
-    const lookups = [
-      ['LOOKUP TYPE', 'CATEGORIA', 'Categoria de gasto', 'S'],
-      ['LOOKUP TYPE', 'FORMA_PGTO', 'Forma de pagamento', 'S'],
-      ['LOOKUP TYPE', 'RESPONSAVEL', 'Responsável pelo gasto', 'S'],
-      ['LOOKUP TYPE', 'STATUS_GASTO', 'Status do gasto', 'S'],
-      ['LOOKUP TYPE', 'TIPO_GASTO', 'Tipo do gasto', 'S'],
-      ['LOOKUP TYPE', 'CONFIG_ALERTAS', 'Configurações de alertas', 'S'],
-      ['LOOKUP TYPE', 'DIVISAO_COMUM', 'Divisão comum', 'S'],
-      ['CATEGORIA', 'ELETRONICOS', 'Eletrônicos', 'S'],
-      ['CATEGORIA', 'SERVICOS', 'Serviços', 'S'],
-      ['CATEGORIA', 'TRANSPORTE', 'Transporte', 'S'],
-      ['CATEGORIA', 'ALIMENTACAO', 'Alimentação', 'S'],
-      ['CATEGORIA', 'SAUDE', 'Saúde', 'S'],
-      ['CATEGORIA', 'EDUCACAO', 'Educação', 'S'],
-      ['CATEGORIA', 'LAZER', 'Lazer', 'S'],
-      ['CATEGORIA', 'OUTROS', 'Outros', 'S'],
-      ['FORMA_PGTO', 'CARTAO_BRADESCO', 'Cartão Bradesco', 'S'],
-      ['FORMA_PGTO', 'CARTAO_NUBANK', 'Cartão Nubank', 'S'],
-      ['FORMA_PGTO', 'PIX', 'Pix', 'S'],
-      ['FORMA_PGTO', 'DINHEIRO', 'Dinheiro', 'S'],
-      ['FORMA_PGTO', 'DEBITO', 'Débito', 'S'],
-      ['RESPONSAVEL', 'Rafael Silva', 'R', 'S', '1'],
-      ['RESPONSAVEL', 'Diana Paula', 'D', 'S', '1'],
-      ['RESPONSAVEL', 'Rafael e Diana', 'RD', 'S', '2'],
-      ['STATUS_GASTO', 'Pendente', 'PENDENTE', 'S'],
-      ['STATUS_GASTO', 'Pago', 'PAGO', 'S'],
-      ['TIPO_GASTO', 'Individual', 'I', 'S'],
-      ['TIPO_GASTO', 'Compartilhado', 'C', 'S'],
-      ['CONFIG_ALERTAS', 'DIAS_ALERTA_VENCIMENTO', 'Dias de antecedência', 'S', '7'],
-      ['DIVISAO_COMUM', 'PADRAO', 'Divisão padrão', 'S', '2'],
-    ];
-
-    for (const [type, code, meaning, flag, tag = ''] of lookups) {
-      await query(
-        `INSERT INTO mdr_lookup (lookup_type, lookup_code, meaning, enabled_flag, tag)
-         SELECT $1, $2, $3, $4, $5
-         WHERE NOT EXISTS (
-           SELECT 1 FROM mdr_lookup WHERE lookup_type = $1 AND lookup_code = $2
-         )`,
-        [type, code, meaning, flag, tag]
-      );
-      if (tag) {
-        await query(
-          `UPDATE mdr_lookup
-           SET tag = $3
-           WHERE lookup_type = $1 AND lookup_code = $2 AND (tag IS NULL OR tag = '')`,
-          [type, code, tag]
-        );
-      }
-    }
+    const tenantPadrao = await garantirTenantPadrao(pool, tenant);
+    await garantirLookupsPadrao(pool, tenantPadrao.id, { incluirExemplos: true });
+    await limparLookupsExemploOutrasContas(pool, tenantPadrao.id);
 
     await garantirAdminPadrao();
 
@@ -124,15 +77,21 @@ if (setupRouteEnabled) {
 
 const garantirAdminPadrao = async () => {
   const bcrypt = require('bcryptjs');
+  const tenantPadrao = await garantirTenantPadrao(pool, tenant);
+  const tenantPadraoId = tenantPadrao.id;
   const hash = bcrypt.hashSync(admin.senhaInicial, 10);
   const senhaTemporaria = admin.forcarTrocaSenha ? 1 : 0;
   const result = await query(
-    `INSERT INTO usuarios (nome, email, senha, perfil, ativo, senha_temporaria)
-     VALUES ($1, $2, $3, 'ADMIN', 1, $4)
+    `INSERT INTO usuarios (tenant_id, nome, email, senha, perfil, ativo, senha_temporaria)
+     VALUES ($1, $2, $3, $4, 'SUPER_ADMIN', 1, $5)
      ON CONFLICT (email)
-     DO UPDATE SET perfil = 'ADMIN', ativo = 1, updated_at = NOW()
-     RETURNING id, senha, senha_temporaria`,
-    [admin.nome, admin.email, hash, senhaTemporaria]
+     DO UPDATE SET
+       perfil = 'SUPER_ADMIN',
+       tenant_id = COALESCE(usuarios.tenant_id, EXCLUDED.tenant_id),
+       ativo = 1,
+       updated_at = NOW()
+     RETURNING id, tenant_id, senha, senha_temporaria`,
+    [tenantPadraoId, admin.nome, admin.email, hash, senhaTemporaria]
   );
   const usuarioAdmin = result.rows[0] || {};
   const usuarioId = usuarioAdmin.id;
@@ -147,43 +106,44 @@ const garantirAdminPadrao = async () => {
     await query('UPDATE usuarios SET senha_temporaria = 1, updated_at = NOW() WHERE id = $1', [usuarioId]);
   }
 
-  for (const tela of TELAS_PADRAO_ADMIN) {
+  for (const tela of TELAS_PADRAO_SUPER_ADMIN) {
     await query(
-      `INSERT INTO usuario_telas (usuario_id, tela, pode_acessar)
-       VALUES ($1, $2, 1)
+      `INSERT INTO usuario_telas (tenant_id, usuario_id, tela, pode_acessar)
+       VALUES ($1, $2, $3, 1)
        ON CONFLICT (usuario_id, tela)
        DO UPDATE SET pode_acessar = 1, updated_at = NOW()`,
-      [usuarioId, tela]
+      [usuarioAdmin.tenant_id || tenantPadraoId, usuarioId, tela]
     );
   }
 
   let grupo = await query(
-    'SELECT id FROM grupos WHERE nome = $1 AND criado_por = $2 ORDER BY id LIMIT 1',
-    ['Família Raphael', usuarioId]
+    'SELECT id FROM grupos WHERE nome = $1 AND criado_por = $2 AND tenant_id = $3 ORDER BY id LIMIT 1',
+    ['Familia Raphael', usuarioId, usuarioAdmin.tenant_id || tenantPadraoId]
   );
   if (!grupo.rows[0]) {
     grupo = await query(
-      'INSERT INTO grupos (nome, descricao, criado_por) VALUES ($1, $2, $3) RETURNING id',
-      ['Família Raphael', 'Dados financeiros compartilhados', usuarioId]
+      'INSERT INTO grupos (tenant_id, nome, descricao, criado_por) VALUES ($1, $2, $3, $4) RETURNING id',
+      [usuarioAdmin.tenant_id || tenantPadraoId, 'Familia Raphael', 'Dados financeiros compartilhados', usuarioId]
     );
   }
 
   await query(
-    `INSERT INTO usuario_grupos (usuario_id, grupo_id, permissao, pode_ver_todos, pode_editar, pode_excluir)
-     VALUES ($1, $2, 'ADMIN', 1, 1, 1)
+    `INSERT INTO usuario_grupos (tenant_id, usuario_id, grupo_id, permissao, pode_ver_todos, pode_editar, pode_excluir)
+     VALUES ($1, $2, $3, 'ADMIN', 1, 1, 1)
      ON CONFLICT (usuario_id, grupo_id)
      DO UPDATE SET permissao = 'ADMIN', pode_ver_todos = 1, pode_editar = 1, pode_excluir = 1`,
-    [usuarioId, grupo.rows[0].id]
+    [usuarioAdmin.tenant_id || tenantPadraoId, usuarioId, grupo.rows[0].id]
   );
 
   await query(
-    'UPDATE gastos SET grupo_id = $1 WHERE usuario_id = $2 AND grupo_id IS NULL',
-    [grupo.rows[0].id, usuarioId]
+    'UPDATE gastos SET tenant_id = $1, grupo_id = $2 WHERE usuario_id = $3 AND grupo_id IS NULL',
+    [usuarioAdmin.tenant_id || tenantPadraoId, grupo.rows[0].id, usuarioId]
   );
   await query(
-    'UPDATE receitas SET grupo_id = $1 WHERE usuario_id = $2 AND grupo_id IS NULL',
-    [grupo.rows[0].id, usuarioId]
+    'UPDATE receitas SET tenant_id = $1, grupo_id = $2 WHERE usuario_id = $3 AND grupo_id IS NULL',
+    [usuarioAdmin.tenant_id || tenantPadraoId, grupo.rows[0].id, usuarioId]
   );
+  await garantirLookupsPadrao(pool, usuarioAdmin.tenant_id || tenantPadraoId, { incluirExemplos: true });
 };
 
 const iniciar = async () => {

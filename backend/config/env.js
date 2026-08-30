@@ -70,6 +70,11 @@ module.exports = {
     senhaInicial: process.env.ADMIN_INITIAL_PASSWORD || 'admin123',
     forcarTrocaSenha: boolEnv('ADMIN_FORCE_PASSWORD_CHANGE', true),
   },
+  tenant: {
+    nome: process.env.DEFAULT_TENANT_NAME || 'Familia Raphael',
+    slug: process.env.DEFAULT_TENANT_SLUG || 'familia-raphael',
+    descricao: process.env.DEFAULT_TENANT_DESCRIPTION || 'Conta principal do administrador padrao',
+  },
   adminSql: {
     enabled: boolEnv('ENABLE_ADMIN_SQL', !isProduction),
     writeEnabled: boolEnv('ENABLE_ADMIN_SQL_WRITE', !isProduction),

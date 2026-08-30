@@ -1,19 +1,50 @@
 import API_URL from './api';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { TELAS_SISTEMA, TELAS_PADRAO_USUARIO } from './config/telas';
+import { TELAS_SISTEMA, TELAS_PADRAO_ADMIN, TELAS_PADRAO_SUPER_ADMIN, TELAS_PADRAO_USUARIO } from './config/telas';
+
+const ehPerfilAdmin = (perfil) => ['ADMIN', 'SUPER_ADMIN'].includes(perfil);
+const ehPerfilSuperAdmin = (perfil) => perfil === 'SUPER_ADMIN';
+
+const telasPadraoPerfil = (perfil) => {
+  if (ehPerfilSuperAdmin(perfil)) return TELAS_PADRAO_SUPER_ADMIN;
+  if (perfil === 'ADMIN') return TELAS_PADRAO_ADMIN;
+  return TELAS_PADRAO_USUARIO;
+};
+
+const rotuloPerfil = (perfil) => {
+  if (perfil === 'SUPER_ADMIN') return 'Super admin';
+  if (perfil === 'ADMIN') return 'Admin';
+  return 'Usuário';
+};
+
+const valorBooleano = (valor) => {
+  const texto = String(valor ?? '').trim().toUpperCase();
+  return valor === true || valor === 1 || ['1', 'S', 'SIM', 'TRUE', 'YES', 'Y'].includes(texto);
+};
 
 function Perfil({ usuario, token, onVoltar, onAtualizar, onGruposAtualizar, trocaSenhaObrigatoria = false }) {
+  const ehAdmin = ehPerfilAdmin(usuario.perfil);
+  const ehSuperAdmin = ehPerfilSuperAdmin(usuario.perfil);
   const [abaSelecionada, setAbaSelecionada] = useState(() => trocaSenhaObrigatoria ? 'senha' : 'perfil');
   const [form, setForm] = useState({ nome: usuario.nome, email: usuario.email });
   const [senhaForm, setSenhaForm] = useState({ senhaAtual: '', novaSenha: '', confirmarSenha: '' });
   const [usuarios, setUsuarios] = useState([]);
-  const [novoUsuario, setNovoUsuario] = useState({ nome: '', email: '', senha: '', perfil: 'USER' });
+  const [novoUsuario, setNovoUsuario] = useState({ nome: '', email: '', senha: '', perfil: 'USER', tenant_id: usuario.tenant_id || '' });
+  const [tenants, setTenants] = useState([]);
+  const [novoTenant, setNovoTenant] = useState({
+    nome: '',
+    descricao: '',
+    admin_nome: '',
+    admin_email: '',
+    admin_senha: '',
+  });
   const [usuarioAcessoId, setUsuarioAcessoId] = useState('');
   const [telasSelecionadas, setTelasSelecionadas] = useState([]);
   const [carregandoAcessos, setCarregandoAcessos] = useState(false);
   const [grupos, setGrupos] = useState([]);
   const [novoGrupo, setNovoGrupo] = useState({ nome: '', descricao: '' });
   const [grupoSelecionadoId, setGrupoSelecionadoId] = useState('');
+  const [grupoForm, setGrupoForm] = useState({ nome: '', descricao: '' });
   const [membrosGrupo, setMembrosGrupo] = useState([]);
   const [resumoCompartilhamento, setResumoCompartilhamento] = useState(null);
   const [membroGrupo, setMembroGrupo] = useState({
@@ -33,8 +64,20 @@ function Perfil({ usuario, token, onVoltar, onAtualizar, onGruposAtualizar, troc
     () => usuarios.find((u) => String(u.id) === String(usuarioAcessoId)),
     [usuarios, usuarioAcessoId]
   );
-  const usuarioSelecionadoEhAdmin = usuarioSelecionado?.perfil === 'ADMIN';
-  const telasDisponiveis = TELAS_SISTEMA.filter((tela) => !tela.adminOnly || usuarioSelecionadoEhAdmin);
+  const usuarioSelecionadoEhAdmin = ehPerfilAdmin(usuarioSelecionado?.perfil);
+  const usuarioSelecionadoEhSuperAdmin = ehPerfilSuperAdmin(usuarioSelecionado?.perfil);
+  const telasDisponiveis = TELAS_SISTEMA.filter((tela) =>
+    (!tela.superAdminOnly || usuarioSelecionadoEhSuperAdmin) &&
+    (!tela.adminOnly || usuarioSelecionadoEhAdmin)
+  );
+  const usuariosGrupoDisponiveis = useMemo(
+    () => usuarios.filter((u) => Number(u.tenant_id) === Number(usuario.tenant_id)),
+    [usuarios, usuario.tenant_id]
+  );
+  const grupoSelecionado = useMemo(
+    () => grupos.find((grupo) => String(grupo.id) === String(grupoSelecionadoId)) || null,
+    [grupos, grupoSelecionadoId]
+  );
 
   const lerResposta = useCallback(async (res) => {
     const data = await res.json().catch(() => ({}));
@@ -79,11 +122,26 @@ function Perfil({ usuario, token, onVoltar, onAtualizar, onGruposAtualizar, troc
       });
   }, [headers, lerResposta]);
 
+  const buscarTenants = useCallback(() => {
+    if (!ehSuperAdmin) return;
+    fetch(`${API_URL}/api/tenants`, { headers })
+      .then(lerResposta)
+      .then((dados) => {
+        const lista = Array.isArray(dados) ? dados : [];
+        setTenants(lista);
+        setNovoUsuario((atual) => ({
+          ...atual,
+          tenant_id: atual.tenant_id || usuario.tenant_id || lista[0]?.id || '',
+        }));
+      })
+      .catch(() => setTenants([]));
+  }, [ehSuperAdmin, headers, lerResposta, usuario.tenant_id]);
+
   const buscarTelasUsuario = useCallback((usuarioId) => {
     if (!usuarioId) return;
     const usuarioAlvo = usuarios.find((u) => String(u.id) === String(usuarioId));
-    if (usuarioAlvo?.perfil === 'ADMIN') {
-      setTelasSelecionadas(TELAS_SISTEMA.map((tela) => tela.id));
+    if (ehPerfilAdmin(usuarioAlvo?.perfil)) {
+      setTelasSelecionadas(telasPadraoPerfil(usuarioAlvo?.perfil));
       return;
     }
 
@@ -92,9 +150,7 @@ function Perfil({ usuario, token, onVoltar, onAtualizar, onGruposAtualizar, troc
       .then(lerResposta)
       .then((data) => setTelasSelecionadas(Array.isArray(data.telas) ? data.telas : []))
       .catch((err) => {
-        const telasPadrao = usuarioAlvo?.perfil === 'ADMIN'
-          ? TELAS_SISTEMA.map((tela) => tela.id)
-          : TELAS_PADRAO_USUARIO;
+        const telasPadrao = telasPadraoPerfil(usuarioAlvo?.perfil);
         setTelasSelecionadas(telasPadrao);
 
         if (err.status === 404) {
@@ -131,35 +187,46 @@ function Perfil({ usuario, token, onVoltar, onAtualizar, onGruposAtualizar, troc
   }, [headers, lerResposta]);
 
   useEffect(() => {
-    if (usuario.perfil !== 'ADMIN') return;
+    if (!ehAdmin) return;
 
     if (abaSelecionada === 'usuarios' || abaSelecionada === 'acessos') {
       buscarUsuarios();
     }
 
+    if ((abaSelecionada === 'usuarios' || abaSelecionada === 'contas') && ehSuperAdmin) {
+      buscarTenants();
+    }
+
     if (abaSelecionada === 'acessos') {
       buscarGrupos();
     }
-  }, [abaSelecionada, usuario.perfil, buscarUsuarios, buscarGrupos]);
+  }, [abaSelecionada, ehAdmin, ehSuperAdmin, buscarUsuarios, buscarGrupos, buscarTenants]);
 
   useEffect(() => {
-    if (usuario.perfil === 'ADMIN' && abaSelecionada === 'acessos' && usuarios.length > 0 && !usuarioAcessoId) {
+    if (ehAdmin && abaSelecionada === 'acessos' && usuarios.length > 0 && !usuarioAcessoId) {
       setUsuarioAcessoId(String(usuarios[0].id));
     }
-  }, [abaSelecionada, usuario.perfil, usuarios, usuarioAcessoId]);
+  }, [abaSelecionada, ehAdmin, usuarios, usuarioAcessoId]);
 
   useEffect(() => {
-    if (usuario.perfil === 'ADMIN' && abaSelecionada === 'acessos' && usuarioAcessoId) {
+    if (ehAdmin && abaSelecionada === 'acessos' && usuarioAcessoId) {
       buscarTelasUsuario(usuarioAcessoId);
     }
-  }, [abaSelecionada, usuario.perfil, usuarioAcessoId, usuarios, buscarTelasUsuario]);
+  }, [abaSelecionada, ehAdmin, usuarioAcessoId, usuarios, buscarTelasUsuario]);
 
   useEffect(() => {
-    if (usuario.perfil === 'ADMIN' && abaSelecionada === 'acessos') {
+    if (ehAdmin && abaSelecionada === 'acessos') {
       buscarMembrosGrupo(grupoSelecionadoId);
       buscarResumoCompartilhamento(grupoSelecionadoId);
     }
-  }, [abaSelecionada, usuario.perfil, grupoSelecionadoId, buscarMembrosGrupo, buscarResumoCompartilhamento]);
+  }, [abaSelecionada, ehAdmin, grupoSelecionadoId, buscarMembrosGrupo, buscarResumoCompartilhamento]);
+
+  useEffect(() => {
+    setGrupoForm({
+      nome: grupoSelecionado?.nome || '',
+      descricao: grupoSelecionado?.descricao || '',
+    });
+  }, [grupoSelecionado]);
 
   const salvarPerfil = async (e) => {
     e.preventDefault();
@@ -210,16 +277,36 @@ function Perfil({ usuario, token, onVoltar, onAtualizar, onGruposAtualizar, troc
         method: 'POST', headers,
         body: JSON.stringify({
           ...novoUsuario,
-          telas: novoUsuario.perfil === 'ADMIN'
-            ? TELAS_SISTEMA.map((tela) => tela.id)
-            : TELAS_PADRAO_USUARIO,
+          tenant_id: ehSuperAdmin ? novoUsuario.tenant_id : usuario.tenant_id,
+          telas: telasPadraoPerfil(novoUsuario.perfil),
         }),
       }).then(lerResposta);
       mostrarMensagem('Usuário cadastrado com sucesso!');
-      setNovoUsuario({ nome: '', email: '', senha: '', perfil: 'USER' });
+      setNovoUsuario({ nome: '', email: '', senha: '', perfil: 'USER', tenant_id: ehSuperAdmin ? (novoUsuario.tenant_id || usuario.tenant_id || '') : usuario.tenant_id || '' });
       buscarUsuarios();
     } catch (err) {
       mostrarMensagem(err.message || 'Erro ao cadastrar usuário.', true);
+    } finally {
+      setSalvando(false);
+    }
+  };
+
+  const criarConta = async (e) => {
+    e.preventDefault();
+    if (!novoTenant.nome.trim()) return;
+    setSalvando(true);
+    try {
+      await fetch(`${API_URL}/api/tenants`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(novoTenant),
+      }).then(lerResposta);
+      mostrarMensagem('Conta criada com sucesso!');
+      setNovoTenant({ nome: '', descricao: '', admin_nome: '', admin_email: '', admin_senha: '' });
+      buscarTenants();
+      buscarUsuarios();
+    } catch (err) {
+      mostrarMensagem(err.message || 'Erro ao criar conta.', true);
     } finally {
       setSalvando(false);
     }
@@ -287,6 +374,63 @@ function Perfil({ usuario, token, onVoltar, onAtualizar, onGruposAtualizar, troc
     }
   };
 
+  const salvarGrupoDados = async (e) => {
+    e.preventDefault();
+    if (!grupoSelecionadoId || !grupoForm.nome.trim()) return;
+    setSalvando(true);
+    try {
+      await fetch(`${API_URL}/api/grupos/${grupoSelecionadoId}`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify(grupoForm),
+      }).then(lerResposta);
+      mostrarMensagem('Grupo atualizado com sucesso!');
+      buscarGrupos();
+      onGruposAtualizar?.();
+    } catch (err) {
+      mostrarMensagem(err.message || 'Erro ao atualizar grupo.', true);
+    } finally {
+      setSalvando(false);
+    }
+  };
+
+  const excluirGrupo = async (excluirDados = false) => {
+    if (!grupoSelecionadoId) return;
+    const nomeGrupo = grupoSelecionado?.nome || grupoSelecionadoId;
+    const mensagemConfirmacao = excluirDados
+      ? `Excluir o grupo "${nomeGrupo}" e apagar definitivamente ${totalDadosGrupo} registro(s) vinculado(s)?`
+      : `Excluir o grupo "${nomeGrupo}" mantendo os dados? Os lançamentos e receitas vinculados ficarão sem grupo.`;
+
+    if (!window.confirm(mensagemConfirmacao)) return;
+
+    setSalvando(true);
+    try {
+      const queryString = excluirDados ? '?excluirDados=S' : '';
+      const data = await fetch(`${API_URL}/api/grupos/${grupoSelecionadoId}${queryString}`, {
+        method: 'DELETE',
+        headers,
+      }).then(lerResposta);
+
+      const gastosAfetados = Number(data?.dados?.gastos || 0);
+      const receitasAfetadas = Number(data?.dados?.receitas || 0);
+      mostrarMensagem(
+        excluirDados
+          ? `Grupo excluído. ${gastosAfetados} gasto(s) e ${receitasAfetadas} receita(s) apagado(s).`
+          : `Grupo excluído. ${gastosAfetados} gasto(s) e ${receitasAfetadas} receita(s) foram mantidos sem grupo.`
+      );
+      setGrupoSelecionadoId('');
+      setGrupoForm({ nome: '', descricao: '' });
+      setMembrosGrupo([]);
+      setResumoCompartilhamento(null);
+      buscarGrupos();
+      onGruposAtualizar?.();
+    } catch (err) {
+      mostrarMensagem(err.message || 'Erro ao excluir grupo.', true);
+    } finally {
+      setSalvando(false);
+    }
+  };
+
   const salvarMembroGrupo = async (e) => {
     e.preventDefault();
     if (!grupoSelecionadoId || !membroGrupo.usuario_id) return;
@@ -309,6 +453,25 @@ function Perfil({ usuario, token, onVoltar, onAtualizar, onGruposAtualizar, troc
       onGruposAtualizar?.();
     } catch (err) {
       mostrarMensagem(err.message || 'Erro ao atualizar grupo.', true);
+    } finally {
+      setSalvando(false);
+    }
+  };
+
+  const salvarPermissoesMembroGrupo = async (usuarioId, dadosMembro) => {
+    if (!grupoSelecionadoId || !usuarioId) return;
+    setSalvando(true);
+    try {
+      await fetch(`${API_URL}/api/grupos/${grupoSelecionadoId}/membros/${usuarioId}`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify(dadosMembro),
+      }).then(lerResposta);
+      mostrarMensagem('Permissões do membro atualizadas!');
+      buscarMembrosGrupo(grupoSelecionadoId);
+      onGruposAtualizar?.();
+    } catch (err) {
+      mostrarMensagem(err.message || 'Erro ao atualizar membro.', true);
     } finally {
       setSalvando(false);
     }
@@ -354,14 +517,18 @@ function Perfil({ usuario, token, onVoltar, onAtualizar, onGruposAtualizar, troc
   const gastosNoGrupo = Number(resumoCompartilhamento?.gastos?.no_grupo || 0);
   const receitasNoGrupo = Number(resumoCompartilhamento?.receitas?.no_grupo || 0);
   const totalForaGrupo = gastosForaGrupo + receitasForaGrupo;
+  const totalDadosGrupo = gastosNoGrupo + receitasNoGrupo;
   const abasDisponiveis = trocaSenhaObrigatoria
     ? [{ id: 'senha', label: 'Senha' }]
     : [
         { id: 'perfil', label: 'Perfil' },
         { id: 'senha', label: 'Senha' },
-        ...(usuario.perfil === 'ADMIN' ? [
+        ...(ehAdmin ? [
           { id: 'usuarios', label: 'Usuários' },
           { id: 'acessos', label: 'Acessos' },
+        ] : []),
+        ...(ehSuperAdmin ? [
+          { id: 'contas', label: 'Contas' },
         ] : []),
       ];
 
@@ -433,7 +600,11 @@ function Perfil({ usuario, token, onVoltar, onAtualizar, onGruposAtualizar, troc
               </div>
               <div>
                 <label style={label}>Perfil</label>
-                <input style={{ ...input, background: 'var(--app-surface-soft)', cursor: 'not-allowed' }} value={usuario.perfil} readOnly />
+                <input style={{ ...input, background: 'var(--app-surface-soft)', cursor: 'not-allowed' }} value={rotuloPerfil(usuario.perfil)} readOnly />
+              </div>
+              <div>
+                <label style={label}>Conta</label>
+                <input style={{ ...input, background: 'var(--app-surface-soft)', cursor: 'not-allowed' }} value={usuario.tenant_nome || usuario.tenant_id || '—'} readOnly />
               </div>
             </div>
             <button type="submit" disabled={salvando} style={btnPrimario}>
@@ -468,7 +639,7 @@ function Perfil({ usuario, token, onVoltar, onAtualizar, onGruposAtualizar, troc
         </div>
       )}
 
-      {abaSelecionada === 'usuarios' && usuario.perfil === 'ADMIN' && (
+      {abaSelecionada === 'usuarios' && ehAdmin && (
         <div style={{ display: 'grid', gap: '24px' }}>
           <div style={card}>
             <h2 style={tituloCard}>Cadastrar Novo Usuário</h2>
@@ -491,8 +662,20 @@ function Perfil({ usuario, token, onVoltar, onAtualizar, onGruposAtualizar, troc
                   <select style={input} value={novoUsuario.perfil} onChange={(e) => setNovoUsuario({ ...novoUsuario, perfil: e.target.value })}>
                     <option value="USER">Usuário</option>
                     <option value="ADMIN">Administrador</option>
+                    {ehSuperAdmin && <option value="SUPER_ADMIN">Super admin</option>}
                   </select>
                 </div>
+                {ehSuperAdmin && (
+                  <div>
+                    <label style={label}>Conta</label>
+                    <select style={input} value={novoUsuario.tenant_id} onChange={(e) => setNovoUsuario({ ...novoUsuario, tenant_id: e.target.value })}>
+                      <option value="">Conta atual</option>
+                      {tenants.map((tenant) => (
+                        <option key={tenant.id} value={tenant.id}>{tenant.nome}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
               </div>
               <button type="submit" disabled={salvando} style={btnPrimario}>
                 {salvando ? 'Cadastrando...' : 'Cadastrar Usuário'}
@@ -502,12 +685,12 @@ function Perfil({ usuario, token, onVoltar, onAtualizar, onGruposAtualizar, troc
 
           <div style={card}>
             <h2 style={tituloCard}>Usuários Cadastrados</h2>
-            <TabelaUsuarios usuarios={usuarios} usuarioAtual={usuario} onToggleStatus={toggleStatus} />
+            <TabelaUsuarios usuarios={usuarios} usuarioAtual={usuario} onToggleStatus={toggleStatus} mostrarConta={ehSuperAdmin} />
           </div>
         </div>
       )}
 
-      {abaSelecionada === 'acessos' && usuario.perfil === 'ADMIN' && (
+      {abaSelecionada === 'acessos' && ehAdmin && (
         <div style={{ display: 'grid', gap: '24px' }}>
           <div style={card}>
             <h2 style={tituloCard}>Controle de Telas</h2>
@@ -575,14 +758,50 @@ function Perfil({ usuario, token, onVoltar, onAtualizar, onGruposAtualizar, troc
                   ))}
                 </select>
               </div>
+            </div>
 
+            {grupoSelecionado && (
+              <form onSubmit={salvarGrupoDados} style={boxGerenciamentoGrupo}>
+                <div>
+                  <h3 style={subtituloCard}>Editar grupo selecionado</h3>
+                  <p style={textoResumo}>
+                    {totalDadosGrupo} registro(s) vinculado(s): {gastosNoGrupo} gasto(s) e {receitasNoGrupo} receita(s).
+                  </p>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
+                  <div>
+                    <label style={label}>Nome do grupo</label>
+                    <input style={input} value={grupoForm.nome} onChange={(e) => setGrupoForm({ ...grupoForm, nome: e.target.value })} required />
+                  </div>
+                  <div>
+                    <label style={label}>Descrição</label>
+                    <input style={input} value={grupoForm.descricao} onChange={(e) => setGrupoForm({ ...grupoForm, descricao: e.target.value })} />
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                  <button type="submit" disabled={salvando || !grupoForm.nome.trim()} style={btnPrimario}>
+                    {salvando ? 'Salvando...' : 'Salvar Grupo'}
+                  </button>
+                  <button type="button" disabled={salvando} onClick={() => excluirGrupo(false)} style={btnPerigoGrande}>
+                    Excluir grupo
+                  </button>
+                  {ehSuperAdmin && (
+                    <button type="button" disabled={salvando} onClick={() => excluirGrupo(true)} style={btnPerigoGrande}>
+                      Excluir grupo e dados
+                    </button>
+                  )}
+                </div>
+              </form>
+            )}
+
+            <div style={{ marginTop: '18px' }}>
               <form onSubmit={salvarMembroGrupo} style={{ display: 'grid', gap: '12px' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px' }}>
                   <div>
                     <label style={label}>Membro</label>
                     <select style={input} value={membroGrupo.usuario_id} onChange={(e) => setMembroGrupo({ ...membroGrupo, usuario_id: e.target.value })}>
                       <option value="">Selecione...</option>
-                      {usuarios.map((u) => (
+                      {usuariosGrupoDisponiveis.map((u) => (
                         <option key={u.id} value={u.id}>{u.nome}</option>
                       ))}
                     </select>
@@ -630,9 +849,59 @@ function Perfil({ usuario, token, onVoltar, onAtualizar, onGruposAtualizar, troc
 
             {grupoSelecionadoId && (
               <div style={{ marginTop: '18px' }}>
-                <TabelaMembros membros={membrosGrupo} usuarioAtual={usuario} onRemover={removerMembroGrupo} />
+                <TabelaMembros
+                  membros={membrosGrupo}
+                  usuarioAtual={usuario}
+                  onRemover={removerMembroGrupo}
+                  onSalvar={salvarPermissoesMembroGrupo}
+                  salvando={salvando}
+                />
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {abaSelecionada === 'contas' && ehSuperAdmin && (
+        <div style={{ display: 'grid', gap: '24px' }}>
+          <div style={card}>
+            <h2 style={tituloCard}>Nova Conta</h2>
+            <form onSubmit={criarConta}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginBottom: '20px' }}>
+                <div>
+                  <label style={label}>Nome da conta *</label>
+                  <input style={input} value={novoTenant.nome} onChange={(e) => setNovoTenant({ ...novoTenant, nome: e.target.value })} placeholder="Familia do cliente" required />
+                </div>
+                <div>
+                  <label style={label}>Descrição</label>
+                  <input style={input} value={novoTenant.descricao} onChange={(e) => setNovoTenant({ ...novoTenant, descricao: e.target.value })} placeholder="Uso familiar, pessoal ou compartilhado" />
+                </div>
+              </div>
+
+              <h3 style={subtituloCard}>Administrador inicial</h3>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', margin: '12px 0 20px' }}>
+                <div>
+                  <label style={label}>Nome</label>
+                  <input style={input} value={novoTenant.admin_nome} onChange={(e) => setNovoTenant({ ...novoTenant, admin_nome: e.target.value })} placeholder="Nome do responsável" />
+                </div>
+                <div>
+                  <label style={label}>Email</label>
+                  <input style={input} type="email" value={novoTenant.admin_email} onChange={(e) => setNovoTenant({ ...novoTenant, admin_email: e.target.value })} placeholder="email@dominio.com" />
+                </div>
+                <div>
+                  <label style={label}>Senha inicial</label>
+                  <input style={input} type="password" value={novoTenant.admin_senha} onChange={(e) => setNovoTenant({ ...novoTenant, admin_senha: e.target.value })} placeholder="mín. 6 caracteres" />
+                </div>
+              </div>
+              <button type="submit" disabled={salvando || !novoTenant.nome.trim()} style={btnPrimario}>
+                {salvando ? 'Criando...' : 'Criar Conta'}
+              </button>
+            </form>
+          </div>
+
+          <div style={card}>
+            <h2 style={tituloCard}>Contas Cadastradas</h2>
+            <TabelaTenants tenants={tenants} />
           </div>
         </div>
       )}
@@ -640,7 +909,7 @@ function Perfil({ usuario, token, onVoltar, onAtualizar, onGruposAtualizar, troc
   );
 }
 
-function TabelaUsuarios({ usuarios, usuarioAtual, onToggleStatus }) {
+function TabelaUsuarios({ usuarios, usuarioAtual, onToggleStatus, mostrarConta = false }) {
   return (
     <div style={{ overflowX: 'auto' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
@@ -648,6 +917,7 @@ function TabelaUsuarios({ usuarios, usuarioAtual, onToggleStatus }) {
           <tr style={{ background: 'var(--app-surface-soft)' }}>
             <th style={th}>Nome</th>
             <th style={th}>Email</th>
+            {mostrarConta && <th style={th}>Conta</th>}
             <th style={th}>Perfil</th>
             <th style={th}>Status</th>
             <th style={th}>Ações</th>
@@ -658,13 +928,26 @@ function TabelaUsuarios({ usuarios, usuarioAtual, onToggleStatus }) {
             <tr key={u.id} style={{ borderBottom: '1px solid var(--app-border)' }}>
               <td style={td}>{u.nome}</td>
               <td style={td}>{u.email}</td>
+              {mostrarConta && <td style={td}>{u.tenant_nome || '—'}</td>}
               <td style={td}>
                 <span style={tag(
-                  u.perfil === 'ADMIN' ? 'var(--app-accent-soft)' : 'var(--app-surface-soft)',
-                  u.perfil === 'ADMIN' ? 'var(--app-accent-strong)' : 'var(--app-muted)',
-                  u.perfil === 'ADMIN' ? 'var(--app-accent)' : 'var(--app-border)'
+                  u.perfil === 'SUPER_ADMIN'
+                    ? 'var(--app-warning-soft)'
+                    : u.perfil === 'ADMIN'
+                      ? 'var(--app-accent-soft)'
+                      : 'var(--app-surface-soft)',
+                  u.perfil === 'SUPER_ADMIN'
+                    ? 'var(--app-warning-text)'
+                    : u.perfil === 'ADMIN'
+                      ? 'var(--app-accent-strong)'
+                      : 'var(--app-muted)',
+                  u.perfil === 'SUPER_ADMIN'
+                    ? 'var(--app-warning)'
+                    : u.perfil === 'ADMIN'
+                      ? 'var(--app-accent)'
+                      : 'var(--app-border)'
                 )}>
-                  {u.perfil === 'ADMIN' ? 'Admin' : 'Usuário'}
+                  {rotuloPerfil(u.perfil)}
                 </span>
               </td>
               <td style={td}>
@@ -677,7 +960,7 @@ function TabelaUsuarios({ usuarios, usuarioAtual, onToggleStatus }) {
                 </span>
               </td>
               <td style={td}>
-                {u.id !== usuarioAtual.id && (
+                {u.id !== usuarioAtual.id && u.perfil !== 'SUPER_ADMIN' && (
                   <button
                     onClick={() => onToggleStatus(u.id, u.ativo)}
                     style={{ background: u.ativo ? 'var(--app-danger-soft)' : 'var(--app-success-soft)', color: u.ativo ? 'var(--app-danger-text)' : 'var(--app-success-text)', border: `1px solid ${u.ativo ? 'var(--app-danger)' : 'var(--app-success)'}`, borderRadius: '6px', padding: '4px 12px', cursor: 'pointer', fontSize: '12px', fontWeight: '800' }}
@@ -694,7 +977,53 @@ function TabelaUsuarios({ usuarios, usuarioAtual, onToggleStatus }) {
   );
 }
 
-function TabelaMembros({ membros, usuarioAtual, onRemover }) {
+function TabelaTenants({ tenants }) {
+  if (tenants.length === 0) {
+    return <p style={{ color: 'var(--app-muted)', fontSize: '13px', margin: 0 }}>Nenhuma conta cadastrada.</p>;
+  }
+
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
+        <thead>
+          <tr style={{ background: 'var(--app-surface-soft)' }}>
+            <th style={th}>Conta</th>
+            <th style={th}>Identificador</th>
+            <th style={th}>Responsável</th>
+            <th style={th}>Usuários</th>
+            <th style={th}>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {tenants.map((tenant) => (
+            <tr key={tenant.id} style={{ borderBottom: '1px solid var(--app-border)' }}>
+              <td style={td}>
+                <strong>{tenant.nome}</strong>
+                {tenant.descricao && (
+                  <div style={{ color: 'var(--app-muted)', fontSize: '12px', marginTop: '2px' }}>{tenant.descricao}</div>
+                )}
+              </td>
+              <td style={td}>{tenant.slug || tenant.id}</td>
+              <td style={td}>{tenant.owner_nome || tenant.owner_email || '—'}</td>
+              <td style={td}>{tenant.total_usuarios || 0}</td>
+              <td style={td}>
+                <span style={tag(
+                  tenant.ativo ? 'var(--app-success-soft)' : 'var(--app-danger-soft)',
+                  tenant.ativo ? 'var(--app-success-text)' : 'var(--app-danger-text)',
+                  tenant.ativo ? 'var(--app-success)' : 'var(--app-danger)'
+                )}>
+                  {tenant.ativo ? 'Ativa' : 'Inativa'}
+                </span>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function TabelaMembros({ membros, usuarioAtual, onRemover, onSalvar, salvando = false }) {
   if (membros.length === 0) {
     return <p style={{ color: 'var(--app-muted)', fontSize: '13px', margin: 0 }}>Nenhum membro neste grupo.</p>;
   }
@@ -715,25 +1044,91 @@ function TabelaMembros({ membros, usuarioAtual, onRemover }) {
         </thead>
         <tbody>
           {membros.map((membro) => (
-            <tr key={membro.id} style={{ borderBottom: '1px solid var(--app-border)' }}>
-              <td style={td}>{membro.nome}</td>
-              <td style={td}>{membro.email}</td>
-              <td style={td}>{membro.permissao}</td>
-              <td style={td}>{membro.pode_ver_todos ? 'Sim' : 'Não'}</td>
-              <td style={td}>{membro.pode_editar ? 'Sim' : 'Não'}</td>
-              <td style={td}>{membro.pode_excluir ? 'Sim' : 'Não'}</td>
-              <td style={td}>
-                {membro.id !== usuarioAtual.id && (
-                  <button type="button" onClick={() => onRemover(membro.id)} style={btnPerigo}>
-                    Remover
-                  </button>
-                )}
-              </td>
-            </tr>
+            <LinhaMembro
+              key={membro.id}
+              membro={membro}
+              usuarioAtual={usuarioAtual}
+              onRemover={onRemover}
+              onSalvar={onSalvar}
+              salvando={salvando}
+            />
           ))}
         </tbody>
       </table>
     </div>
+  );
+}
+
+function LinhaMembro({ membro, usuarioAtual, onRemover, onSalvar, salvando }) {
+  const [form, setForm] = useState({
+    permissao: membro.permissao || 'MEMBRO',
+    pode_ver_todos: valorBooleano(membro.pode_ver_todos),
+    pode_editar: valorBooleano(membro.pode_editar),
+    pode_excluir: valorBooleano(membro.pode_excluir),
+  });
+
+  useEffect(() => {
+    setForm({
+      permissao: membro.permissao || 'MEMBRO',
+      pode_ver_todos: valorBooleano(membro.pode_ver_todos),
+      pode_editar: valorBooleano(membro.pode_editar),
+      pode_excluir: valorBooleano(membro.pode_excluir),
+    });
+  }, [membro]);
+
+  const salvar = () => onSalvar?.(membro.id, form);
+
+  return (
+    <tr style={{ borderBottom: '1px solid var(--app-border)' }}>
+      <td style={td}>{membro.nome}</td>
+      <td style={td}>{membro.email}</td>
+      <td style={td}>
+        <select
+          style={inputTabela}
+          value={form.permissao}
+          onChange={(e) => setForm({ ...form, permissao: e.target.value })}
+        >
+          <option value="MEMBRO">Membro</option>
+          <option value="ADMIN">Admin</option>
+        </select>
+      </td>
+      <td style={td}>
+        <input
+          type="checkbox"
+          checked={form.pode_ver_todos}
+          onChange={(e) => setForm({ ...form, pode_ver_todos: e.target.checked })}
+          aria-label={`Permitir que ${membro.nome} veja dados`}
+        />
+      </td>
+      <td style={td}>
+        <input
+          type="checkbox"
+          checked={form.pode_editar}
+          onChange={(e) => setForm({ ...form, pode_editar: e.target.checked })}
+          aria-label={`Permitir que ${membro.nome} edite dados`}
+        />
+      </td>
+      <td style={td}>
+        <input
+          type="checkbox"
+          checked={form.pode_excluir}
+          onChange={(e) => setForm({ ...form, pode_excluir: e.target.checked })}
+          aria-label={`Permitir que ${membro.nome} exclua dados`}
+        />
+      </td>
+      <td style={td}>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <button type="button" onClick={salvar} disabled={salvando} style={btnSecundarioPequeno}>
+            Salvar
+          </button>
+          {membro.id !== usuarioAtual.id && (
+            <button type="button" onClick={() => onRemover(membro.id)} disabled={salvando} style={btnPerigo}>
+              Remover
+            </button>
+          )}
+        </div>
+      </td>
+    </tr>
   );
 }
 
@@ -755,13 +1150,25 @@ const th = { padding: '10px 12px', fontWeight: '800', fontSize: '12px', color: '
 const td = { padding: '12px', color: 'var(--app-text)', verticalAlign: 'middle' };
 const label = { display: 'block', fontSize: '13px', color: 'var(--app-muted)', marginBottom: '6px', fontWeight: '800' };
 const input = { width: '100%', minHeight: '38px', padding: '9px 12px', borderRadius: '8px', border: '1px solid var(--app-border)', fontSize: '14px', boxSizing: 'border-box', color: 'var(--app-text)', background: 'var(--app-surface)' };
+const inputTabela = { ...input, minHeight: '34px', padding: '6px 8px', fontSize: '13px', minWidth: '110px' };
 const btnPrimario = { minHeight: '38px', background: 'var(--app-accent)', color: '#fff', border: 'none', borderRadius: '8px', padding: '9px 18px', cursor: 'pointer', fontSize: '14px', fontWeight: '800' };
 const btnSecundario = { minHeight: '38px', background: 'var(--app-surface-soft)', color: 'var(--app-text)', border: '1px solid var(--app-border)', borderRadius: '8px', padding: '8px 16px', cursor: 'pointer', fontSize: '14px', fontWeight: '800' };
+const btnSecundarioPequeno = { ...btnSecundario, minHeight: '30px', padding: '4px 10px', fontSize: '12px' };
 const btnPerigo = { background: 'var(--app-danger-soft)', color: 'var(--app-danger-text)', border: '1px solid var(--app-danger)', borderRadius: '6px', padding: '4px 12px', cursor: 'pointer', fontSize: '12px', fontWeight: '800' };
+const btnPerigoGrande = { minHeight: '38px', background: 'var(--app-danger-soft)', color: 'var(--app-danger-text)', border: '1px solid var(--app-danger)', borderRadius: '8px', padding: '8px 16px', cursor: 'pointer', fontSize: '14px', fontWeight: '800' };
 const avisoInfo = { margin: '0 0 14px', background: 'var(--app-accent-soft)', color: 'var(--app-accent-strong)', border: '1px solid var(--app-accent)', borderRadius: '8px', padding: '10px 12px', fontSize: '13px', fontWeight: '800' };
 const gridTelas = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '10px' };
 const cardTela = { display: 'flex', gap: '10px', alignItems: 'flex-start', border: '1px solid var(--app-border)', borderRadius: '8px', padding: '12px', background: 'var(--app-surface-soft)', cursor: 'pointer' };
 const checkLinha = { display: 'inline-flex', alignItems: 'center', gap: '6px', color: 'var(--app-muted)', fontSize: '13px', fontWeight: '800' };
+const boxGerenciamentoGrupo = {
+  marginTop: '18px',
+  display: 'grid',
+  gap: '14px',
+  border: '1px solid var(--app-border)',
+  borderRadius: '10px',
+  padding: '14px',
+  background: 'var(--app-surface-soft)',
+};
 const boxCompartilhamento = {
   marginTop: '22px',
   display: 'grid',

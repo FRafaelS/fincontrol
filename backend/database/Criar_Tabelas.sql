@@ -1,5 +1,17 @@
+CREATE TABLE IF NOT EXISTS tenants (
+  id SERIAL PRIMARY KEY,
+  nome TEXT NOT NULL,
+  slug TEXT UNIQUE,
+  descricao TEXT,
+  ativo INTEGER DEFAULT 1,
+  owner_usuario_id INTEGER,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS usuarios (
   id SERIAL PRIMARY KEY,
+  tenant_id INTEGER REFERENCES tenants(id),
   nome TEXT NOT NULL,
   email TEXT NOT NULL UNIQUE,
   senha TEXT NOT NULL,
@@ -13,6 +25,7 @@ CREATE TABLE IF NOT EXISTS usuarios (
 
 CREATE TABLE IF NOT EXISTS grupos (
   id SERIAL PRIMARY KEY,
+  tenant_id INTEGER REFERENCES tenants(id),
   nome TEXT NOT NULL,
   descricao TEXT,
   criado_por INTEGER REFERENCES usuarios(id),
@@ -21,6 +34,7 @@ CREATE TABLE IF NOT EXISTS grupos (
 
 CREATE TABLE IF NOT EXISTS usuario_grupos (
   id SERIAL PRIMARY KEY,
+  tenant_id INTEGER REFERENCES tenants(id),
   usuario_id INTEGER REFERENCES usuarios(id),
   grupo_id INTEGER REFERENCES grupos(id),
   permissao TEXT DEFAULT 'MEMBRO',
@@ -33,6 +47,7 @@ CREATE TABLE IF NOT EXISTS usuario_grupos (
 
 CREATE TABLE IF NOT EXISTS usuario_telas (
   id SERIAL PRIMARY KEY,
+  tenant_id INTEGER REFERENCES tenants(id),
   usuario_id INTEGER REFERENCES usuarios(id) ON DELETE CASCADE,
   tela TEXT NOT NULL,
   pode_acessar INTEGER DEFAULT 1,
@@ -43,6 +58,7 @@ CREATE TABLE IF NOT EXISTS usuario_telas (
 
 CREATE TABLE IF NOT EXISTS gastos (
   id SERIAL PRIMARY KEY,
+  tenant_id INTEGER REFERENCES tenants(id),
   usuario_id INTEGER REFERENCES usuarios(id),
   grupo_id INTEGER REFERENCES grupos(id),
   responsavel TEXT,
@@ -66,6 +82,7 @@ CREATE TABLE IF NOT EXISTS gastos (
 
 CREATE TABLE IF NOT EXISTS receitas (
   id SERIAL PRIMARY KEY,
+  tenant_id INTEGER REFERENCES tenants(id),
   usuario_id INTEGER REFERENCES usuarios(id),
   grupo_id INTEGER REFERENCES grupos(id),
   responsavel TEXT,
@@ -82,6 +99,7 @@ CREATE TABLE IF NOT EXISTS receitas (
 
 CREATE TABLE IF NOT EXISTS mdr_lookup (
   id SERIAL PRIMARY KEY,
+  tenant_id INTEGER REFERENCES tenants(id),
   lookup_type VARCHAR(30),
   lookup_code VARCHAR(30),
   meaning VARCHAR(80),
@@ -97,35 +115,43 @@ CREATE TABLE IF NOT EXISTS mdr_lookup (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS slug TEXT;
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS descricao TEXT;
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS ativo INTEGER DEFAULT 1;
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS owner_usuario_id INTEGER;
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS tenant_id INTEGER REFERENCES tenants(id);
 ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS senha_temporaria INTEGER DEFAULT 0;
 ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS ultimo_login TIMESTAMP;
+
+ALTER TABLE grupos ADD COLUMN IF NOT EXISTS tenant_id INTEGER REFERENCES tenants(id);
+ALTER TABLE usuario_grupos ADD COLUMN IF NOT EXISTS tenant_id INTEGER REFERENCES tenants(id);
+ALTER TABLE usuario_telas ADD COLUMN IF NOT EXISTS tenant_id INTEGER REFERENCES tenants(id);
+ALTER TABLE gastos ADD COLUMN IF NOT EXISTS tenant_id INTEGER REFERENCES tenants(id);
 ALTER TABLE gastos ADD COLUMN IF NOT EXISTS grupo_id INTEGER REFERENCES grupos(id);
 ALTER TABLE gastos ADD COLUMN IF NOT EXISTS periodo TEXT;
 ALTER TABLE gastos ADD COLUMN IF NOT EXISTS data_pgto TEXT;
+ALTER TABLE receitas ADD COLUMN IF NOT EXISTS tenant_id INTEGER REFERENCES tenants(id);
 ALTER TABLE receitas ADD COLUMN IF NOT EXISTS grupo_id INTEGER REFERENCES grupos(id);
+ALTER TABLE mdr_lookup ADD COLUMN IF NOT EXISTS tenant_id INTEGER REFERENCES tenants(id);
 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tenants_slug_unique ON tenants(slug);
+CREATE INDEX IF NOT EXISTS idx_tenants_ativo ON tenants(ativo);
+CREATE INDEX IF NOT EXISTS idx_usuarios_tenant ON usuarios(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_usuario_telas_usuario ON usuario_telas(usuario_id);
+CREATE INDEX IF NOT EXISTS idx_usuario_telas_tenant ON usuario_telas(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_usuario_grupos_usuario ON usuario_grupos(usuario_id);
 CREATE INDEX IF NOT EXISTS idx_usuario_grupos_grupo ON usuario_grupos(grupo_id);
+CREATE INDEX IF NOT EXISTS idx_usuario_grupos_tenant ON usuario_grupos(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_gastos_usuario ON gastos(usuario_id);
 CREATE INDEX IF NOT EXISTS idx_gastos_grupo ON gastos(grupo_id);
+CREATE INDEX IF NOT EXISTS idx_gastos_tenant ON gastos(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_gastos_periodo ON gastos(ano, mes);
 CREATE INDEX IF NOT EXISTS idx_gastos_status ON gastos(status);
 CREATE INDEX IF NOT EXISTS idx_receitas_usuario ON receitas(usuario_id);
 CREATE INDEX IF NOT EXISTS idx_receitas_grupo ON receitas(grupo_id);
+CREATE INDEX IF NOT EXISTS idx_receitas_tenant ON receitas(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_receitas_periodo ON receitas(ano, mes);
 CREATE INDEX IF NOT EXISTS idx_mdr_lookup_tipo_codigo ON mdr_lookup(lookup_type, lookup_code);
-
-INSERT INTO mdr_lookup (lookup_type, lookup_code, meaning, enabled_flag)
-SELECT 'LOOKUP TYPE', 'DIVISAO_COMUM', 'Divisão comum', 'S'
-WHERE NOT EXISTS (
-  SELECT 1 FROM mdr_lookup
-  WHERE lookup_type = 'LOOKUP TYPE' AND lookup_code = 'DIVISAO_COMUM'
-);
-
-INSERT INTO mdr_lookup (lookup_type, lookup_code, meaning, enabled_flag, tag)
-SELECT 'DIVISAO_COMUM', 'PADRAO', 'Divisão padrão', 'S', '2'
-WHERE NOT EXISTS (
-  SELECT 1 FROM mdr_lookup
-  WHERE lookup_type = 'DIVISAO_COMUM' AND lookup_code = 'PADRAO'
-);
+CREATE INDEX IF NOT EXISTS idx_mdr_lookup_tenant_tipo_codigo ON mdr_lookup(tenant_id, lookup_type, lookup_code);

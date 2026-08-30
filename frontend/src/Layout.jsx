@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { TELAS_SISTEMA, TELAS_PADRAO_ADMIN, TELAS_PADRAO_USUARIO } from './config/telas';
+import { TELAS_SISTEMA, TELAS_PADRAO_ADMIN, TELAS_PADRAO_SUPER_ADMIN, TELAS_PADRAO_USUARIO } from './config/telas';
 
 const cores = {
   principal: '#0F172A',
@@ -40,6 +40,7 @@ function Layout({
   periodoSelecionado = '',
   periodosDisponiveis = [],
   onPeriodoChange,
+  tenantNome = '',
   perfilUsuario = '',
   telasPermitidas = [],
   tema = 'light',
@@ -47,14 +48,20 @@ function Layout({
 }) {
   const [recolhido, setRecolhido] = useState(false);
   const paleta = tema === 'dark' ? coresEscuras : cores;
+  const ehAdmin = ['ADMIN', 'SUPER_ADMIN'].includes(perfilUsuario);
+  const ehSuperAdmin = perfilUsuario === 'SUPER_ADMIN';
   const telasBase = telasPermitidas.length > 0
     ? telasPermitidas
-    : perfilUsuario === 'ADMIN'
+    : ehSuperAdmin
+      ? TELAS_PADRAO_SUPER_ADMIN
+      : perfilUsuario === 'ADMIN'
       ? TELAS_PADRAO_ADMIN
       : TELAS_PADRAO_USUARIO;
   const telasLiberadas = new Set(telasBase);
   const menuItems = TELAS_SISTEMA.filter((item) =>
-    (!item.adminOnly || perfilUsuario === 'ADMIN') && telasLiberadas.has(item.id)
+    (!item.superAdminOnly || ehSuperAdmin) &&
+    (!item.adminOnly || ehAdmin) &&
+    telasLiberadas.has(item.id)
   );
   const pagina = menuItems.find((m) => m.id === paginaAtual);
   const primeiroNome = nomeUsuario?.split(' ')[0] || 'usuário';
@@ -163,7 +170,7 @@ function Layout({
 
         {!recolhido && (
           <div style={{ padding: '14px 18px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-            <p style={{ margin: 0, color: '#64748B', fontSize: '12px' }}>FinControl v1.0</p>
+            <p style={{ margin: 0, color: '#64748B', fontSize: '12px' }}>FinControl v2.0</p>
           </div>
         )}
       </aside>
@@ -191,7 +198,9 @@ function Layout({
           gap: '18px',
         }}>
           <div style={{ minWidth: 0 }}>
-            <p style={{ margin: 0, fontSize: '13px', color: paleta.textoSuave }}>Olá, {primeiroNome}</p>
+            <p style={{ margin: 0, fontSize: '13px', color: paleta.textoSuave }}>
+              Olá, {primeiroNome}{tenantNome ? ` · ${tenantNome}` : ''}
+            </p>
             <h1 style={{ margin: 0, fontSize: '20px', fontWeight: '800', color: paleta.texto }}>
               {pagina?.label || 'FinControl'}
             </h1>

@@ -11,7 +11,7 @@ import Relatorios from './Relatorios';
 import Metas from './Metas';
 import Receitas from './Receitas';
 import SqlIde from './SqlIde';
-import { TELAS_SISTEMA, TELAS_PADRAO_ADMIN, TELAS_PADRAO_USUARIO } from './config/telas';
+import { TELAS_SISTEMA, TELAS_PADRAO_ADMIN, TELAS_PADRAO_SUPER_ADMIN, TELAS_PADRAO_USUARIO } from './config/telas';
 import { classificarVencimento, diasParaVencer } from './utils/datas';
 import { formatarMoeda, toNumber } from './utils/formatters';
 import { getLookupLabel, lookupKey, normalizarLookups } from './utils/lookups';
@@ -126,19 +126,25 @@ const normalizarReceita = (receita = {}) => ({
 
 const obterTelasUsuario = (usuario) => {
   if (Array.isArray(usuario?.telas) && usuario.telas.length > 0) return usuario.telas;
+  if (usuario?.perfil === 'SUPER_ADMIN') return TELAS_PADRAO_SUPER_ADMIN;
   return usuario?.perfil === 'ADMIN' ? TELAS_PADRAO_ADMIN : TELAS_PADRAO_USUARIO;
 };
 
-const usuarioPodeAcessarTela = (usuario, telaId) => {
+const usuarioEhAdmin = (usuario) => ['ADMIN', 'SUPER_ADMIN'].includes(usuario?.perfil);
+const usuarioEhSuperAdmin = (usuario) => usuario?.perfil === 'SUPER_ADMIN';
+
+const usuarioPodeAcessarTela = (usuario, telaId, { sqlIdeAtiva = false } = {}) => {
   if (!usuario) return false;
+  if (telaId === 'sql' && !sqlIdeAtiva) return false;
   const tela = TELAS_SISTEMA.find((item) => item.id === telaId);
   if (!tela) return false;
-  if (tela.adminOnly && usuario.perfil !== 'ADMIN') return false;
+  if (tela.superAdminOnly && !usuarioEhSuperAdmin(usuario)) return false;
+  if (tela.adminOnly && !usuarioEhAdmin(usuario)) return false;
   return obterTelasUsuario(usuario).includes(telaId);
 };
 
-const primeiraTelaPermitida = (usuario) =>
-  TELAS_SISTEMA.find((tela) => usuarioPodeAcessarTela(usuario, tela.id))?.id || 'dashboard';
+const primeiraTelaPermitida = (usuario, opcoes) =>
+  TELAS_SISTEMA.find((tela) => usuarioPodeAcessarTela(usuario, tela.id, opcoes))?.id || 'dashboard';
 
 const lerJsonSeguro = async (res) => {
   const data = await res.json().catch(() => ({}));
@@ -162,6 +168,7 @@ function App() {
   const [salvando, setSalvando] = useState(false);
   const [erroForm, setErroForm] = useState('');
   const [diasAlerta, setDiasAlerta] = useState(7);
+  const [sqlIdeAtiva, setSqlIdeAtiva] = useState(false);
   const [bannerFechado, setBannerFechado] = useState(false);
   const [verPerfil, setVerPerfil] = useState(false);
 
@@ -193,7 +200,7 @@ function App() {
   const [filtroResponsavel, setFiltroResponsavel] = useState('');
   const [filtroBusca, setFiltroBusca] = useState('');
   const [periodoSelecionado, setPeriodoSelecionado] = useState(periodoAtual);
-  const telasPermitidas = obterTelasUsuario(usuario);
+  const telasPermitidas = obterTelasUsuario(usuario).filter((tela) => tela !== 'sql' || sqlIdeAtiva);
 
   const periodosDisponiveis = useMemo(() => {
     const periodos = new Set([periodoAtual()]);
@@ -236,7 +243,7 @@ function App() {
   const handleLogin = (novoUsuario, novoToken) => {
     setToken(novoToken);
     setUsuario(novoUsuario);
-    setPagina(primeiraTelaPermitida(novoUsuario));
+    setPagina(primeiraTelaPermitida(novoUsuario, { sqlIdeAtiva: false }));
   };
 
   const handleLogout = useCallback(() => {
@@ -247,6 +254,7 @@ function App() {
     setGastos([]);
     setReceitas([]);
     setGrupos([]);
+    setSqlIdeAtiva(false);
     setSelecionados([]);
     setVerPerfil(false);
     setPagina('dashboard');
@@ -257,6 +265,25 @@ function App() {
       .then(lerJsonSeguro)
       .then((dados) => setter(normalizarLookups(dados)))
       .catch(() => setter([])), [fetchAuth]);
+
+  const buscarStatusSql = useCallback(() => {
+    if (!token) {
+      setSqlIdeAtiva(false);
+      return;
+    }
+
+    fetchAuth(`${API_URL}/api/admin-sql/status`)
+      .then((res) => {
+        if (res.status === 401) {
+          handleLogout();
+          return { enabled: false };
+        }
+        if (!res.ok) return { enabled: false };
+        return res.json();
+      })
+      .then((data) => setSqlIdeAtiva(Boolean(data?.enabled)))
+      .catch(() => setSqlIdeAtiva(false));
+  }, [fetchAuth, handleLogout, token]);
 
   const buscarTodasLookups = useCallback(() => {
     buscarLookup('RESPONSAVEL', setLkResponsavel);
@@ -305,6 +332,31 @@ function App() {
       .catch(() => setGrupos([]));
   }, [fetchAuth, handleLogout]);
 
+  const sincronizarPerfilUsuario = useCallback(() => {
+    fetchAuth(`${API_URL}/api/auth/perfil`)
+      .then((r) => {
+        if (r.status === 401) {
+          handleLogout();
+          return null;
+        }
+        if (!r.ok) return null;
+        return r.json();
+      })
+      .then((data) => {
+        if (!data) return;
+        setUsuario((usuarioAtual) => {
+          const usuarioAtualizado = {
+            ...usuarioAtual,
+            ...data,
+            telas: Array.isArray(data.telas) ? data.telas : usuarioAtual?.telas,
+          };
+          localStorage.setItem('usuario', JSON.stringify(usuarioAtualizado));
+          return usuarioAtualizado;
+        });
+      })
+      .catch(() => {});
+  }, [fetchAuth, handleLogout]);
+
   const buscarTelasUsuarioAtual = useCallback(() => {
     fetchAuth(`${API_URL}/api/auth/telas`)
       .then(lerJsonSeguro)
@@ -330,6 +382,8 @@ function App() {
 
   useEffect(() => {
     if (token && !usuario?.trocar_senha_obrigatorio) {
+      sincronizarPerfilUsuario();
+      buscarStatusSql();
       buscarGastos();
       buscarReceitas();
       buscarTodasLookups();
@@ -337,13 +391,13 @@ function App() {
       buscarTelasUsuarioAtual();
     }
     else setCarregando(false);
-  }, [token, usuario?.trocar_senha_obrigatorio, buscarGastos, buscarReceitas, buscarTodasLookups, buscarGrupos, buscarTelasUsuarioAtual]);
+  }, [token, usuario?.trocar_senha_obrigatorio, sincronizarPerfilUsuario, buscarStatusSql, buscarGastos, buscarReceitas, buscarTodasLookups, buscarGrupos, buscarTelasUsuarioAtual]);
 
   useEffect(() => {
-    if (usuario && !usuarioPodeAcessarTela(usuario, pagina)) {
-      setPagina(primeiraTelaPermitida(usuario));
+    if (usuario && !usuarioPodeAcessarTela(usuario, pagina, { sqlIdeAtiva })) {
+      setPagina(primeiraTelaPermitida(usuario, { sqlIdeAtiva }));
     }
-  }, [usuario, pagina]);
+  }, [usuario, pagina, sqlIdeAtiva]);
 
   useEffect(() => {
     const handleClickFora = (e) => {
@@ -363,18 +417,18 @@ function App() {
   const handleNovoGasto = () => { setForm(campoVazio); setEditandoId(null); setErroForm(''); setMostrarForm(true); };
 
   const abrirNovoLancamento = () => {
-    if (!usuarioPodeAcessarTela(usuario, 'gastos')) return;
+    if (!usuarioPodeAcessarTela(usuario, 'gastos', { sqlIdeAtiva })) return;
     handleNovoGasto();
     setPagina('gastos');
   };
 
   const abrirReceitas = () => {
-    if (!usuarioPodeAcessarTela(usuario, 'receitas')) return;
+    if (!usuarioPodeAcessarTela(usuario, 'receitas', { sqlIdeAtiva })) return;
     setPagina('receitas');
   };
 
   const navegarPara = (tela) => {
-    if (usuarioPodeAcessarTela(usuario, tela)) setPagina(tela);
+    if (usuarioPodeAcessarTela(usuario, tela, { sqlIdeAtiva })) setPagina(tela);
   };
 
   const handleEditar = (gasto) => {
@@ -729,15 +783,15 @@ function App() {
   );
 
   const renderPagina = () => {
-    if (!usuarioPodeAcessarTela(usuario, pagina)) return <AcessoNegado />;
-    if (pagina === 'dashboard')  return <Dashboard gastos={gastos} receitas={receitas} periodoSelecionado={periodoSelecionado} onAdicionarLancamento={usuarioPodeAcessarTela(usuario, 'gastos') ? abrirNovoLancamento : null} onAdicionarReceita={usuarioPodeAcessarTela(usuario, 'receitas') ? abrirReceitas : null} lookupsResponsavel={lkResponsavel} lookupsDivisaoComum={lkDivisaoComum} />;
-    if (pagina === 'parametros') return <Lookups onVoltar={() => { setPagina('gastos'); buscarTodasLookups(); }} token={token} />;
+    if (!usuarioPodeAcessarTela(usuario, pagina, { sqlIdeAtiva })) return <AcessoNegado />;
+    if (pagina === 'dashboard')  return <Dashboard gastos={gastos} receitas={receitas} periodoSelecionado={periodoSelecionado} onAdicionarLancamento={usuarioPodeAcessarTela(usuario, 'gastos', { sqlIdeAtiva }) ? abrirNovoLancamento : null} onAdicionarReceita={usuarioPodeAcessarTela(usuario, 'receitas', { sqlIdeAtiva }) ? abrirReceitas : null} lookupsResponsavel={lkResponsavel} lookupsDivisaoComum={lkDivisaoComum} />;
+    if (pagina === 'parametros') return <Lookups onVoltar={() => { setPagina('gastos'); buscarTodasLookups(); buscarStatusSql(); }} token={token} />;
     if (pagina === 'importacao') return <Importacao onVoltar={() => { setPagina('gastos'); buscarGastos(); }} token={token} grupos={grupos} />;
     if (pagina === 'parcelas')   return <Parcelas onVoltar={() => { setPagina('gastos'); buscarGastos(); }} token={token} grupos={grupos} />;
     if (pagina === 'relatorios') return <Relatorios onVoltar={() => setPagina('gastos')} token={token} />;
     if (pagina === 'metas')      return <Metas gastos={gastos} periodoSelecionado={periodoSelecionado} />;
     if (pagina === 'receitas')   return <Receitas token={token} receitas={receitas} responsaveis={lkResponsavel} periodoSelecionado={periodoSelecionado} onAtualizar={buscarReceitas} grupos={grupos} />;
-    if (pagina === 'sql')        return usuario?.perfil === 'ADMIN' ? <SqlIde token={token} /> : renderGastos();
+    if (pagina === 'sql')        return usuarioEhSuperAdmin(usuario) && sqlIdeAtiva ? <SqlIde token={token} /> : renderGastos();
     return renderGastos();
   };
 
@@ -1058,6 +1112,7 @@ function App() {
       periodoSelecionado={periodoSelecionado}
       periodosDisponiveis={periodosDisponiveis}
       onPeriodoChange={setPeriodoSelecionado}
+      tenantNome={usuario?.tenant_nome}
       perfilUsuario={usuario?.perfil}
       telasPermitidas={telasPermitidas}
       tema={tema}

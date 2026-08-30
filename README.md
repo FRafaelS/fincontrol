@@ -1,6 +1,6 @@
 # FinControl
 
-Sistema de controle financeiro pessoal/familiar com lancamentos, receitas, metas, relatorios, importacao, grupos de dados e controle de acesso por tela.
+Sistema de controle financeiro pessoal/familiar com lancamentos, receitas, metas, relatorios, importacao, grupos de dados, controle de acesso por tela e isolamento por conta.
 
 ## Ambientes
 
@@ -8,6 +8,8 @@ Sistema de controle financeiro pessoal/familiar com lancamentos, receitas, metas
 - Frontend: React.
 - Admin inicial: `ps.raphael@hotmail.com` com senha `admin123`.
 - Por padrao, a primeira senha e temporaria e deve ser trocada no primeiro acesso.
+- O admin inicial vira `SUPER_ADMIN`; cada familia/cliente deve ficar em uma conta propria.
+- Cada conta possui seus proprios valores de parametros. Novas contas recebem apenas os tipos e configuracoes operacionais; responsaveis, categorias e formas de pagamento devem ser cadastrados dentro da propria conta.
 
 ## Predeploy
 

@@ -5,6 +5,7 @@ const { adminSql } = require('../config/env');
 
 const MAX_ROWS = adminSql.maxRows;
 const COMANDOS_PERMITIDOS = ['SELECT', 'INSERT', 'UPDATE', 'DELETE'];
+const VERDADEIRO = new Set(['1', 'S', 'SIM', 'TRUE', 'YES', 'Y', 'ON', 'ATIVO', 'ATIVADO']);
 
 const limparSql = (valor) => {
   const sql = String(valor || '').trim();
@@ -18,6 +19,58 @@ const sqlSemComentariosIniciais = (sql) =>
 const obterComando = (sql) => {
   const match = sqlSemComentariosIniciais(sql).match(/^([a-z]+)/i);
   return match ? match[1].toUpperCase() : '';
+};
+
+const boolConfiguracao = (valor, padrao = false) => {
+  if (valor === undefined || valor === null || valor === '') return padrao;
+  return VERDADEIRO.has(String(valor).trim().toUpperCase());
+};
+
+const statusSqlIde = async (tenantId) => {
+  const result = await pool.query(
+    `SELECT lookup_code, meaning, description, tag, enabled_flag, attribute1
+     FROM mdr_lookup
+     WHERE tenant_id = $1
+       AND lookup_type = 'CONFIG_SISTEMA'
+       AND lookup_code = 'SQL_IDE_ENABLED'
+     ORDER BY id
+     LIMIT 1`,
+    [tenantId]
+  );
+  const lookup = result.rows[0];
+  const enabledFlag = String(lookup?.enabled_flag || '').trim().toUpperCase();
+
+  if (!lookup || enabledFlag !== 'S') {
+    return {
+      enabled: adminSql.enabled,
+      source: lookup ? 'lookup_inativa' : 'env',
+    };
+  }
+
+  const valorConfigurado = [lookup.tag, lookup.attribute1, lookup.meaning, lookup.description]
+    .find((valor) => String(valor ?? '').trim() !== '');
+
+  return {
+    enabled: boolConfiguracao(valorConfigurado, adminSql.enabled),
+    source: 'lookup',
+  };
+};
+
+const exigirSqlIdeAtiva = async (req, res, next) => {
+  try {
+    const status = await statusSqlIde(req.usuario.tenant_id);
+    if (!status.enabled) {
+      return res.status(403).json({
+        erro: 'SQL IDE desativada. Ative a lookup CONFIG_SISTEMA / SQL_IDE_ENABLED com TAG = S.',
+        codigo: 'SQL_IDE_DESATIVADA',
+        ...status,
+      });
+    }
+    req.sqlIdeStatus = status;
+    next();
+  } catch (err) {
+    res.status(500).json({ erro: err.message });
+  }
 };
 
 const validarSql = (sql, confirmarEscrita) => {
@@ -37,7 +90,20 @@ const validarSql = (sql, confirmarEscrita) => {
   return '';
 };
 
-router.get('/tabelas', async (req, res) => {
+router.get('/status', async (req, res) => {
+  try {
+    const status = await statusSqlIde(req.usuario.tenant_id);
+    res.json({
+      ...status,
+      writeEnabled: adminSql.writeEnabled,
+      maxRows: MAX_ROWS,
+    });
+  } catch (err) {
+    res.status(500).json({ erro: err.message });
+  }
+});
+
+router.get('/tabelas', exigirSqlIdeAtiva, async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT table_name
@@ -51,7 +117,7 @@ router.get('/tabelas', async (req, res) => {
   }
 });
 
-router.get('/tabelas/:nome/colunas', async (req, res) => {
+router.get('/tabelas/:nome/colunas', exigirSqlIdeAtiva, async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT column_name, data_type, is_nullable, column_default
@@ -66,7 +132,7 @@ router.get('/tabelas/:nome/colunas', async (req, res) => {
   }
 });
 
-router.post('/executar', async (req, res) => {
+router.post('/executar', exigirSqlIdeAtiva, async (req, res) => {
   const sql = limparSql(req.body?.sql);
   const confirmarEscrita = req.body?.confirmarEscrita === true;
   const erroValidacao = validarSql(sql, confirmarEscrita);

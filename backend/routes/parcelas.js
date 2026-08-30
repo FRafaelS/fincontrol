@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { query } = require('../database/postgres');
+const { ehAdminConta } = require('../utils/perfis');
 
 const MESES = ['JAN','FEV','MAR','ABR','MAI','JUN','JUL','AGO','SET','OUT','NOV','DEZ'];
 
@@ -72,12 +73,13 @@ const normalizarChave = (valor) =>
     .replace(/[\u0300-\u036f]/g, '')
     .toUpperCase();
 
-const buscarDivisorComum = async (responsavel = '') => {
+const buscarDivisorComum = async (tenantId, responsavel = '') => {
   const result = await query(
     `SELECT lookup_code, meaning, tag
      FROM mdr_lookup
-     WHERE lookup_type = 'DIVISAO_COMUM' AND enabled_flag = 'S'
-     ORDER BY id`
+     WHERE tenant_id = $1 AND lookup_type = 'DIVISAO_COMUM' AND enabled_flag = 'S'
+     ORDER BY id`,
+    [tenantId]
   );
 
   const chaveResponsavel = normalizarChave(responsavel);
@@ -102,22 +104,44 @@ const buscarDivisorComum = async (responsavel = '') => {
 const podeUsarGrupo = async (usuario, grupoId) => {
   if (!grupoId) return true;
 
+  if (ehAdminConta(usuario)) {
+    const grupo = await query('SELECT id FROM grupos WHERE id = $1 AND tenant_id = $2', [grupoId, usuario.tenant_id]);
+    return grupo.rows.length > 0;
+  }
+
   const permissao = await query(
-    'SELECT pode_editar FROM usuario_grupos WHERE usuario_id = $1 AND grupo_id = $2',
-    [usuario.id, grupoId]
+    `SELECT ug.pode_editar
+     FROM usuario_grupos ug
+     JOIN grupos g ON g.id = ug.grupo_id
+     WHERE ug.usuario_id = $1 AND ug.grupo_id = $2 AND g.tenant_id = $3`,
+    [usuario.id, grupoId, usuario.tenant_id]
   );
 
   return Boolean(permissao.rows[0]) && habilitado(permissao.rows[0].pode_editar);
 };
 
 const buscarGrupoPadraoEdicao = async (usuario) => {
+  if (ehAdminConta(usuario)) {
+    const result = await query(
+      `SELECT id AS grupo_id
+       FROM grupos
+       WHERE tenant_id = $1
+       ORDER BY CASE WHEN criado_por = $2 THEN 0 ELSE 1 END, id
+       LIMIT 1`,
+      [usuario.tenant_id, usuario.id]
+    );
+
+    return result.rows[0]?.grupo_id || null;
+  }
+
   const result = await query(
-    `SELECT grupo_id
-     FROM usuario_grupos
-     WHERE usuario_id = $1 AND pode_editar = 1
-     ORDER BY CASE WHEN permissao = 'ADMIN' THEN 0 ELSE 1 END, id
+    `SELECT ug.grupo_id
+     FROM usuario_grupos ug
+     JOIN grupos g ON g.id = ug.grupo_id
+     WHERE ug.usuario_id = $1 AND ug.pode_editar = 1 AND g.tenant_id = $2
+     ORDER BY CASE WHEN ug.permissao = 'ADMIN' THEN 0 ELSE 1 END, ug.id
      LIMIT 1`,
-    [usuario.id]
+    [usuario.id, usuario.tenant_id]
   );
 
   return result.rows[0]?.grupo_id || null;
@@ -173,7 +197,7 @@ router.post('/gerar', async (req, res) => {
       return res.status(403).json({ erro: 'Você não tem permissão para gerar parcelas neste grupo.' });
     }
 
-    const divisor = tipoNormalizado === 'C' ? await buscarDivisorComum(responsavel) : 1;
+    const divisor = tipoNormalizado === 'C' ? await buscarDivisorComum(req.usuario.tenant_id, responsavel) : 1;
     const valorIndividual = (valorTotal / totalParcelas) / divisor;
     const ids = [];
     for (let i = 0; i < totalParcelas; i++) {
@@ -185,10 +209,10 @@ router.post('/gerar', async (req, res) => {
       const parcela = `${String(i + 1).padStart(2, '0')} DE ${String(totalParcelas).padStart(2, '0')}`;
 
       const result = await query(
-        `INSERT INTO gastos (usuario_id, grupo_id, responsavel, tipo, periodo, descricao, parcela,
+        `INSERT INTO gastos (usuario_id, grupo_id, tenant_id, responsavel, tipo, periodo, descricao, parcela,
           categoria, forma_pgto, valor_total, valor_individual, data_venc, mes, ano, status, obs)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING id`,
-        [req.usuario.id, grupoId, responsavel, tipoNormalizado, periodoNormalizado, descricao,
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING id`,
+        [req.usuario.id, grupoId, req.usuario.tenant_id, responsavel, tipoNormalizado, periodoNormalizado, descricao,
          parcela, categoria, forma_pgto, valorTotal, valorIndividual, dataVenc, mesAtual,
          anoAtual, normalizarStatus(status), obs]
       );
