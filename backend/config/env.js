@@ -27,13 +27,14 @@ const intEnv = (nome, padrao) => {
 };
 
 const frontendUrl = process.env.FRONTEND_URL || corsOrigins[0] || 'http://localhost:3000';
-const passwordResetEnabled = boolEnv('PASSWORD_RESET_ENABLED', true);
 const temSmtpUrl = Boolean(process.env.SMTP_URL);
 const temSmtpHost = Boolean(process.env.SMTP_HOST);
 const emailFrom = process.env.EMAIL_FROM || process.env.SMTP_FROM || process.env.SMTP_USER || '';
+const smtpConfigurado = Boolean((temSmtpUrl || temSmtpHost) && emailFrom);
+const passwordResetEnabled = boolEnv('PASSWORD_RESET_ENABLED', smtpConfigurado);
 
 const email = {
-  enabled: passwordResetEnabled && (temSmtpUrl || temSmtpHost),
+  enabled: passwordResetEnabled && smtpConfigurado,
   smtpUrl: process.env.SMTP_URL || '',
   host: process.env.SMTP_HOST || '',
   port: intEnv('SMTP_PORT', 587),
@@ -66,7 +67,6 @@ const validarAmbiente = () => {
     }
 
     if (passwordResetEnabled) {
-      const smtpConfigurado = temSmtpUrl || temSmtpHost;
       if (!smtpConfigurado || !emailFrom) {
         erros.push('Configure SMTP_URL ou SMTP_HOST e EMAIL_FROM para recuperar senha em produção.');
       }

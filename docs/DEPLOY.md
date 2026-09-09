@@ -40,6 +40,11 @@ DATABASE_URL=postgres://usuario:senha@host:5432/fincontrol
 JWT_SECRET=um_segredo_longo_com_32_ou_mais_caracteres
 CORS_ORIGINS=https://seu-frontend.vercel.app
 FRONTEND_URL=https://seu-frontend.vercel.app
+```
+
+Para habilitar recuperacao de senha por e-mail em producao, configure tambem:
+
+```bash
 PASSWORD_RESET_ENABLED=true
 PASSWORD_RESET_EXPIRES_MINUTES=30
 EMAIL_FROM="FinControl <nao-responda@seudominio.com>"
