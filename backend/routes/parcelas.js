@@ -198,7 +198,8 @@ router.post('/gerar', async (req, res) => {
     }
 
     const divisor = tipoNormalizado === 'C' ? await buscarDivisorComum(req.usuario.tenant_id, responsavel) : 1;
-    const valorIndividual = (valorTotal / totalParcelas) / divisor;
+    const valorParcela = valorTotal / totalParcelas;
+    const valorIndividual = valorParcela / divisor;
     const ids = [];
     for (let i = 0; i < totalParcelas; i++) {
       const idxMes = (idxMesInicial + i) % 12;
@@ -213,7 +214,7 @@ router.post('/gerar', async (req, res) => {
           categoria, forma_pgto, valor_total, valor_individual, data_venc, mes, ano, status, obs)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING id`,
         [req.usuario.id, grupoId, req.usuario.tenant_id, responsavel, tipoNormalizado, periodoNormalizado, descricao,
-         parcela, categoria, forma_pgto, valorTotal, valorIndividual, dataVenc, mesAtual,
+         parcela, categoria, forma_pgto, valorParcela, valorIndividual, dataVenc, mesAtual,
          anoAtual, normalizarStatus(status), obs]
       );
       ids.push(result.rows[0].id);

@@ -18,7 +18,11 @@ import { formatarMoeda, toNumber } from './utils/formatters';
 import { getLookupLabel, lookupKey, normalizarLookups } from './utils/lookups';
 import {
   agruparPagamentosPorResponsavel,
+  calcularValorCompraGasto,
+  calcularValorIndividualGasto,
   calcularValorIndividualPorDivisao,
+  calcularValorParcela,
+  calcularValorTotalPeriodoGasto,
   obterDivisorComum,
 } from './utils/rateioResponsaveis';
 
@@ -210,6 +214,16 @@ function App() {
   const [lkStatus, setLkStatus] = useState([]);
   const [lkTipo, setLkTipo] = useState([]);
   const [lkDivisaoComum, setLkDivisaoComum] = useState([]);
+  const opcoesRateioLancamentos = {
+    lookupsResponsavel: lkResponsavel,
+    lookupsDivisaoComum: lkDivisaoComum,
+  };
+  const valorTotalPeriodoLancamento = (gasto) =>
+    calcularValorTotalPeriodoGasto(gasto, opcoesRateioLancamentos);
+  const valorIndividualLancamento = (gasto) =>
+    calcularValorIndividualGasto(gasto, opcoesRateioLancamentos);
+  const valorCompraLancamento = (gasto) =>
+    calcularValorCompraGasto(gasto, opcoesRateioLancamentos);
 
   const [filtroMes, setFiltroMes] = useState('');
   const [filtroAno, setFiltroAno] = useState('');
@@ -513,7 +527,7 @@ function App() {
       descricao: gasto.descricao || '', parcela: gasto.parcela || '',
       tp_despesa: gasto.tp_despesa || '',
       categoria: gasto.categoria || '', forma_pgto: gasto.forma_pgto || '',
-      valor_total: gasto.valor_total || '',
+      valor_total: valorCompraLancamento(gasto) || '',
       data_venc: gasto.data_venc || '', data_pgto: gasto.data_pgto || '',
       status: gasto.status || '', obs: gasto.obs || '',
     });
@@ -619,7 +633,12 @@ function App() {
         if (!g) return;
         return fetchAuth(`${API_URL}/api/gastos/${id}`, {
           method: 'PUT',
-          body: JSON.stringify({ ...g, status: statusPagoValor, data_pgto: dataPagamento }),
+          body: JSON.stringify({
+            ...g,
+            valor_total: valorCompraLancamento(g),
+            status: statusPagoValor,
+            data_pgto: dataPagamento,
+          }),
         }).then(lerJsonSeguro);
       }));
       setModalPagamento(false);
@@ -650,6 +669,8 @@ function App() {
     const okPeriodo = filtroPeriodo ? normalizarPeriodoGasto(g.periodo) === filtroPeriodo : true;
     const okStatus = filtroStatus ? statusIgual(g.status, filtroStatus) : true;
     const okResp = filtroResponsavel ? g.responsavel === filtroResponsavel : true;
+    const valorTotalPeriodo = valorTotalPeriodoLancamento(g);
+    const valorIndividualPeriodo = valorIndividualLancamento(g);
     const valoresColuna = {
       responsavel: [g.responsavel, getLookupLabel(lkResponsavel, g.responsavel)],
       tipo: [g.tipo, normalizarTipoGasto(g.tipo)],
@@ -659,8 +680,8 @@ function App() {
       tp_despesa: [g.tp_despesa],
       categoria: [g.categoria, getLookupLabel(lkCategoria, g.categoria)],
       forma_pgto: [g.forma_pgto, getLookupLabel(lkFormaPgto, g.forma_pgto)],
-      valor_total: [g.valor_total, formatarMoeda(g.valor_total)],
-      valor_individual: [g.valor_individual, formatarMoeda(g.valor_individual)],
+      valor_total: [valorTotalPeriodo, formatarMoeda(valorTotalPeriodo)],
+      valor_individual: [valorIndividualPeriodo, formatarMoeda(valorIndividualPeriodo)],
       data_venc: [g.data_venc],
       data_pgto: [g.data_pgto],
       status: [g.status, getLookupLabel(lkStatus, g.status)],
@@ -691,8 +712,8 @@ function App() {
           g.status,
           getLookupLabel(lkStatus, g.status),
           g.obs,
-          formatarMoeda(g.valor_total),
-          formatarMoeda(g.valor_individual),
+          formatarMoeda(valorTotalPeriodo),
+          formatarMoeda(valorIndividualPeriodo),
         ].some((valor) => normalizarTextoBusca(valor).includes(termoBusca))
       : true;
     return okMes && okAno && okPeriodo && okStatus && okResp && okColunas && okBusca;
@@ -704,8 +725,8 @@ function App() {
   const proximos = gastosPendentes.filter((g) => classificarVencimento(g.data_venc, diasAlerta) === 'proximo');
   const alertas = [...vencidos, ...vencem_hoje, ...proximos];
 
-  const totalCheio = gastosFiltrados.reduce((s, g) => s + toNumber(g.valor_total), 0);
-  const totalIndividual = gastosFiltrados.reduce((s, g) => s + toNumber(g.valor_individual), 0);
+  const totalCheio = gastosFiltrados.reduce((s, g) => s + valorTotalPeriodoLancamento(g), 0);
+  const totalIndividual = gastosFiltrados.reduce((s, g) => s + valorIndividualLancamento(g), 0);
   const responsaveisAPagar = agruparPagamentosPorResponsavel(gastosFiltrados, {
     lookupsResponsavel: lkResponsavel,
     lookupsDivisaoComum: lkDivisaoComum,
@@ -720,8 +741,10 @@ function App() {
     form.tipo,
     form.responsavel,
     lkDivisaoComum,
-    lkResponsavel
+    lkResponsavel,
+    form.parcela
   );
+  const valorTotalPeriodoCalculado = calcularValorParcela(form.valor_total, form.parcela);
   const mesAnoCalculado = periodoPorData(form.data_venc);
 
   const exportarLancamentos = () => {
@@ -735,8 +758,8 @@ function App() {
       TP_DESPESA: g.tp_despesa || '',
       CATEGORIA: getLookupLabel(lkCategoria, g.categoria),
       'FORMA DE PGTO': getLookupLabel(lkFormaPgto, g.forma_pgto),
-      VALOR_TOTAL: toNumber(g.valor_total),
-      VALOR_INDIVIDUAL: toNumber(g.valor_individual),
+      VALOR_TOTAL: valorTotalPeriodoLancamento(g),
+      VALOR_INDIVIDUAL: valorIndividualLancamento(g),
       DATA_VENC: g.data_venc || '',
       DATA_PGTO: g.data_pgto || '',
       STATUS_PGTO: getLookupLabel(lkStatus, g.status),
@@ -941,7 +964,7 @@ function App() {
     if (pagina === 'importacao') return <Importacao onVoltar={() => { setPagina('gastos'); buscarGastos(); }} token={token} grupos={grupos} grupoPadraoId={grupoAtivoId} />;
     if (pagina === 'parcelas')   return <Parcelas onVoltar={() => { setPagina('gastos'); buscarGastos(); }} token={token} grupos={grupos} />;
     if (pagina === 'relatorios') return <Relatorios onVoltar={() => setPagina('gastos')} token={token} grupoAtivoId={grupoAtivoId} />;
-    if (pagina === 'metas')      return <Metas gastos={gastosContexto} periodoSelecionado={periodoSelecionado} />;
+    if (pagina === 'metas')      return <Metas gastos={gastosContexto} periodoSelecionado={periodoSelecionado} lookupsResponsavel={lkResponsavel} lookupsDivisaoComum={lkDivisaoComum} />;
     if (pagina === 'receitas')   return <Receitas token={token} receitas={receitasContexto} responsaveis={lkResponsavel} periodoSelecionado={periodoSelecionado} onAtualizar={buscarReceitas} grupoPadraoId={grupoAtivoId} />;
     if (pagina === 'sql')        return usuarioEhSuperAdmin(usuario) && sqlIdeAtiva ? <SqlIde token={token} /> : renderGastos();
     return renderGastos();
@@ -993,7 +1016,7 @@ function App() {
       {/* Cards de resumo */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginBottom: '20px' }}>
         {[
-          { label: 'Total do período',  valor: formatarMoeda(totalCheio), sub: `${gastosFiltrados.length} lançamentos · valor cheio`, cor: 'var(--app-accent)', icone: '💰' },
+          { label: 'Total do período',  valor: formatarMoeda(totalCheio), sub: `${gastosFiltrados.length} lançamentos · valor mensal`, cor: 'var(--app-accent)', icone: '💰' },
           { label: 'Responsáveis a pagar', custom: true, cor: 'var(--app-accent)', icone: '$' },
           { label: 'Vencidos',          valor: vencidos.length,    sub: 'precisam de atenção', cor: 'var(--app-danger)', icone: '🔴' },
           { label: 'Vencem hoje',       valor: vencem_hoje.length, sub: 'pague hoje',           cor: 'var(--app-warning)', icone: '🟡' },
@@ -1103,7 +1126,7 @@ function App() {
               <div><label style={label}>Categoria</label><select style={input} name="categoria" value={form.categoria} onChange={handleChange}><option value="">Selecione...</option>{lkCategoria.map((l) => <option key={lookupKey(l)} value={l.MEANING}>{l.LOOKUP_CODE}</option>)}</select></div>
               <div><label style={label}>Forma de Pagamento</label><select style={input} name="forma_pgto" value={form.forma_pgto} onChange={handleChange}><option value="">Selecione...</option>{lkFormaPgto.map((l) => <option key={lookupKey(l)} value={l.MEANING}>{l.LOOKUP_CODE}</option>)}</select></div>
               <div>
-                <label style={label}>Valor Total (R$) *</label>
+                <label style={label}>Valor Total da Compra (R$) *</label>
                 <input style={input} name="valor_total" type="number" step="0.01" value={form.valor_total} onChange={handleChange} required />
               </div>
               <div><label style={label}>Vencimento *</label><input style={input} name="data_venc" value={form.data_venc} onChange={handleChange} placeholder="31/03/26" required /></div>
@@ -1115,6 +1138,11 @@ function App() {
                 <span style={{ color: 'var(--app-faint)', fontSize: '11px' }}>
                   {normalizarTipoGasto(form.tipo) === 'C' ? `Divisão comum: ${divisorComum}` : 'Calculado pelo tipo'}
                 </span>
+              </div>
+              <div style={autoInfo}>
+                <span style={{ color: 'var(--app-muted)', fontSize: '12px', fontWeight: '700' }}>Valor do período</span>
+                <strong style={{ color: 'var(--app-text)', fontSize: '18px' }}>{formatarMoeda(valorTotalPeriodoCalculado)}</strong>
+                <span style={{ color: 'var(--app-faint)', fontSize: '11px' }}>Baseado na parcela</span>
               </div>
               <div style={autoInfo}>
                 <span style={{ color: 'var(--app-muted)', fontSize: '12px', fontWeight: '700' }}>Mês/Ano</span>
@@ -1139,7 +1167,7 @@ function App() {
               {selecionados.length > 0 && <strong style={{ color: '#A5B4FC', marginLeft: '8px' }}> · {selecionados.length} selecionado(s)</strong>}
             </span>
             <span style={{ fontSize: '14px', fontWeight: '900', color: '#E5E7EB' }}>
-              Total cheio: {formatarMoeda(totalCheio)} · Individual: {formatarMoeda(totalIndividual)}
+              Total do período: {formatarMoeda(totalCheio)} · Individual: {formatarMoeda(totalIndividual)}
             </span>
           </div>
           <div style={{ position: 'relative', width: 'min(100%, 520px)', flex: '1 1 320px' }}>
@@ -1227,6 +1255,8 @@ function App() {
                 const tipoNormalizado = normalizarTipoGasto(g.tipo);
                 const dias = diasParaVencer(g.data_venc);
                 const sel = selecionados.includes(g.id);
+                const valorTotalPeriodo = valorTotalPeriodoLancamento(g);
+                const valorIndividualPeriodo = valorIndividualLancamento(g);
                 return (
                   <tr key={g.id} onClick={() => toggleSelecionado(g.id)} style={linhaLancamento(tipoVenc, sel, index)}>
                     <td style={{ ...tdLancamento, textAlign: 'center' }} onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={sel} onChange={() => toggleSelecionado(g.id)} style={{ cursor: 'pointer' }} /></td>
@@ -1246,8 +1276,8 @@ function App() {
                     <td style={{ ...tdLancamento, color: tabelaLancamentos.muted, fontWeight: '700' }}>{g.tp_despesa || '—'}</td>
                     <td style={{ ...tdLancamento, color: tabelaLancamentos.muted, fontWeight: '700' }}>{getLookupLabel(lkCategoria, g.categoria)}</td>
                     <td style={{ ...tdLancamento, color: tabelaLancamentos.muted, fontWeight: '700' }}>{getLookupLabel(lkFormaPgto, g.forma_pgto)}</td>
-                    <td style={{ ...tdLancamento, textAlign: 'right', fontWeight: '900', color: tabelaLancamentos.text, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{formatarMoeda(g.valor_total)}</td>
-                    <td style={{ ...tdLancamento, textAlign: 'right', fontWeight: '900', color: tabelaLancamentos.muted, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{formatarMoeda(g.valor_individual)}</td>
+                    <td style={{ ...tdLancamento, textAlign: 'right', fontWeight: '900', color: tabelaLancamentos.text, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{formatarMoeda(valorTotalPeriodo)}</td>
+                    <td style={{ ...tdLancamento, textAlign: 'right', fontWeight: '900', color: tabelaLancamentos.muted, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{formatarMoeda(valorIndividualPeriodo)}</td>
                     <td style={{ ...tdLancamento, color: tabelaLancamentos.vencimento[tipoVenc], fontWeight: tipoVenc !== 'normal' ? '900' : '800', whiteSpace: 'nowrap' }}>
                       {g.data_venc || '—'}
                       {!statusIgual(g.status, 'PAGO') && tipoVenc === 'vencido' && <span style={badgeVencimento('vencido')}>{Math.abs(dias)}d atrás</span>}

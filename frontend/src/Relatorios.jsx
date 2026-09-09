@@ -5,7 +5,11 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { formatarMoeda, percentual, toNumber } from './utils/formatters';
 import { getLookupLabel, lookupKey, normalizarLookups } from './utils/lookups';
-import { agruparPagamentosPorResponsavel } from './utils/rateioResponsaveis';
+import {
+  agruparPagamentosPorResponsavel,
+  calcularValorIndividualGasto,
+  calcularValorTotalPeriodoGasto,
+} from './utils/rateioResponsaveis';
 
 const MESES = ['JAN','FEV','MAR','ABR','MAI','JUN','JUL','AGO','SET','OUT','NOV','DEZ'];
 
@@ -56,9 +60,6 @@ const normalizarStatusGasto = (status) => {
 
 const statusIgual = (status, valor) => normalizarStatusGasto(status) === normalizarStatusGasto(valor);
 const estaPago = (gasto) => statusIgual(gasto.status, 'PAGO');
-const valorTotalGasto = (gasto) => toNumber(gasto.valor_total);
-const valorIndividualGasto = (gasto) => toNumber(gasto.valor_individual);
-
 function Relatorios({ onVoltar, token, grupoAtivoId = '' }) {
   const [gastos, setGastos] = useState([]);
   const [carregando, setCarregando] = useState(true);
@@ -108,6 +109,12 @@ function Relatorios({ onVoltar, token, grupoAtivoId = '' }) {
   });
 
   const anos = [...new Set(gastosContexto.map((g) => g.ano).filter(Boolean))].sort((a, b) => b - a);
+  const opcoesRateio = {
+    lookupsResponsavel: lkResponsavel,
+    lookupsDivisaoComum: lkDivisaoComum,
+  };
+  const valorTotalGasto = (gasto) => calcularValorTotalPeriodoGasto(gasto, opcoesRateio);
+  const valorIndividualGasto = (gasto) => calcularValorIndividualGasto(gasto, opcoesRateio);
   const totalCheio = gastosFiltrados.reduce((s, g) => s + valorTotalGasto(g), 0);
   const porResponsavel = agruparPagamentosPorResponsavel(gastosFiltrados, {
     lookupsResponsavel: lkResponsavel,
@@ -166,7 +173,7 @@ function Relatorios({ onVoltar, token, grupoAtivoId = '' }) {
     const ws3 = XLSX.utils.json_to_sheet(porResponsavel.map((r) => ({
       'Responsável': r.responsavel,
       Quantidade: r.qtd,
-      'Valor Cheio': r.totalCheio,
+      'Valor do Período': r.totalCheio,
       'Valor Individual': r.totalIndividual,
       'A Pagar': r.aPagar,
       Quinzena: r.quinzena,
@@ -185,7 +192,7 @@ function Relatorios({ onVoltar, token, grupoAtivoId = '' }) {
     doc.setFontSize(10); doc.setFont('helvetica', 'normal');
     doc.text(`Gerado em: ${dataHoje}`, 14, 23);
     doc.text(`Filtros: ${descricaoFiltros()}`, 14, 29);
-    doc.text(`Valor cheio: ${formatarMoeda(totalCheio)} | A pagar: ${formatarMoeda(totalAPagar)} | ${gastosFiltrados.length} lançamento(s)`, 14, 35);
+    doc.text(`Valor do período: ${formatarMoeda(totalCheio)} | A pagar: ${formatarMoeda(totalAPagar)} | ${gastosFiltrados.length} lançamento(s)`, 14, 35);
     doc.setFontSize(12); doc.setFont('helvetica', 'bold');
     doc.text('Detalhamento', 14, 44);
     autoTable(doc, {
@@ -194,7 +201,7 @@ function Relatorios({ onVoltar, token, grupoAtivoId = '' }) {
       body: gastosFiltrados.map((g) => [
         g.id, g.tipo || '—', periodoGastoLabel(g.periodo), g.parcela || '—',
         g.descricao, getLookupLabel(lkCategoria, g.categoria), getLookupLabel(lkResponsavel, g.responsavel),
-        g.data_venc || '—', formatarMoeda(g.valor_total), formatarMoeda(g.valor_individual), g.data_pgto || '—',
+        g.data_venc || '—', formatarMoeda(valorTotalGasto(g)), formatarMoeda(valorIndividualGasto(g)), g.data_pgto || '—',
         getLookupLabel(lkStatus, g.status),
       ]),
       styles: { fontSize: 8, cellPadding: 2 },
@@ -289,7 +296,7 @@ function Relatorios({ onVoltar, token, grupoAtivoId = '' }) {
       {/* Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '16px', marginBottom: '24px' }}>
         <div style={card}>
-          <p style={cardLabel}>Valor cheio</p>
+          <p style={cardLabel}>Valor do período</p>
           <p style={{ ...cardValor, color: '#0d6efd' }}>{formatarMoeda(totalCheio)}</p>
           <p style={cardSub}>{gastosFiltrados.length} lançamentos · {descricaoFiltros()}</p>
         </div>
@@ -321,7 +328,7 @@ function Relatorios({ onVoltar, token, grupoAtivoId = '' }) {
             <thead><tr style={{ background: 'var(--app-surface-soft)' }}>
             <th style={th}>Responsável</th>
             <th style={{ ...th, textAlign: 'right' }}>Qtd</th>
-            <th style={{ ...th, textAlign: 'right' }}>Valor Cheio</th>
+            <th style={{ ...th, textAlign: 'right' }}>Valor do período</th>
             <th style={{ ...th, textAlign: 'right' }}>Valor Ind.</th>
             <th style={{ ...th, textAlign: 'right' }}>A Pagar</th>
             <th style={{ ...th, textAlign: 'right' }}>Q</th>
@@ -396,8 +403,8 @@ function Relatorios({ onVoltar, token, grupoAtivoId = '' }) {
                   <td style={td}>{getLookupLabel(lkCategoria, g.categoria)}</td>
                   <td style={td}>{getLookupLabel(lkResponsavel, g.responsavel)}</td>
                   <td style={td}>{g.data_venc || '—'}</td>
-                  <td style={{ ...td, textAlign: 'right' }}>{formatarMoeda(g.valor_total)}</td>
-                  <td style={{ ...td, textAlign: 'right' }}>{formatarMoeda(g.valor_individual)}</td>
+                  <td style={{ ...td, textAlign: 'right' }}>{formatarMoeda(valorTotalGasto(g))}</td>
+                  <td style={{ ...td, textAlign: 'right' }}>{formatarMoeda(valorIndividualGasto(g))}</td>
                   <td style={td}>{g.data_pgto || '—'}</td>
                   <td style={td}>
                     <span style={{ background: statusIgual(g.status, 'PENDENTE') ? 'var(--app-warning-soft)' : 'var(--app-success-soft)', color: statusIgual(g.status, 'PENDENTE') ? 'var(--app-warning-text)' : 'var(--app-success-text)', border: `1px solid ${statusIgual(g.status, 'PENDENTE') ? 'var(--app-warning)' : 'var(--app-success)'}`, padding: '2px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: '800' }}>

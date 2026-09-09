@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { formatarMoeda, percentual, toNumber } from './utils/formatters';
+import { calcularValorIndividualGasto } from './utils/rateioResponsaveis';
 
 const cores = {
   principal: 'var(--app-primary)',
@@ -17,14 +18,22 @@ const separarPeriodo = (periodo) => {
   return { mes, ano: Number(ano) };
 };
 
-function Metas({ gastos, periodoSelecionado }) {
+function Metas({
+  gastos,
+  periodoSelecionado,
+  lookupsResponsavel = [],
+  lookupsDivisaoComum = [],
+}) {
   const [metaMensal, setMetaMensal] = useState(() => localStorage.getItem('meta_mensal') || '');
   const [mensagem, setMensagem] = useState('');
   const { mes, ano } = separarPeriodo(periodoSelecionado);
 
   const despesasMes = gastos
     .filter((g) => g.mes === mes && Number(g.ano) === ano)
-    .reduce((s, g) => s + toNumber(g.valor_individual), 0);
+    .reduce((s, g) => s + calcularValorIndividualGasto(g, {
+      lookupsResponsavel,
+      lookupsDivisaoComum,
+    }), 0);
 
   const meta = toNumber(metaMensal);
   const usado = percentual(despesasMes, meta);

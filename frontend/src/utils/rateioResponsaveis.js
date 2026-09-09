@@ -28,6 +28,25 @@ const normalizarPeriodoPadrao = (periodo) => {
   return valor;
 };
 
+const quaseIgual = (a, b, tolerancia = 0.02) =>
+  Math.abs(toNumber(a) - toNumber(b)) <= tolerancia;
+
+export const obterTotalParcelas = (parcela) => {
+  const valor = normalizarChave(parcela);
+  if (!valor) return 1;
+
+  const match = valor.match(/\b\d{1,3}\s*(?:DE|\/|-)\s*(\d{1,3})\b/);
+  const total = match ? Number(match[1]) : 1;
+
+  return Number.isFinite(total) && total > 0 ? total : 1;
+};
+
+export const calcularValorParcela = (valorTotal, parcela) => {
+  const total = toNumber(valorTotal);
+  const totalParcelas = obterTotalParcelas(parcela);
+  return totalParcelas > 1 ? total / totalParcelas : total;
+};
+
 const rotuloResponsavel = (responsavel, lookupsResponsavel = []) => {
   const label = getLookupLabel(lookupsResponsavel, responsavel);
   if (label && label !== '—') return label;
@@ -110,9 +129,10 @@ export const calcularValorIndividualPorDivisao = (
   tipo,
   responsavel,
   lookupsDivisaoComum = [],
-  lookupsResponsavel = []
+  lookupsResponsavel = [],
+  parcela = ''
 ) => {
-  const total = toNumber(valorTotal);
+  const total = calcularValorParcela(valorTotal, parcela);
   const tipoNormalizado = normalizarTipo(tipo);
   if (tipoNormalizado === 'I') return total;
   if (tipoNormalizado === 'C') {
@@ -121,13 +141,82 @@ export const calcularValorIndividualPorDivisao = (
   return 0;
 };
 
+export const calcularValorTotalPeriodoGasto = (
+  gasto = {},
+  { lookupsResponsavel = [], lookupsDivisaoComum = [] } = {}
+) => {
+  const total = toNumber(gasto.valor_total);
+  const totalParcelas = obterTotalParcelas(gasto.parcela);
+  if (totalParcelas <= 1 || total <= 0) return total;
+
+  const tipo = normalizarTipo(gasto.tipo);
+  const individual = toNumber(gasto.valor_individual);
+  const divisor = tipo === 'C'
+    ? Math.max(obterDivisorComum(lookupsDivisaoComum, gasto.responsavel, lookupsResponsavel), 1)
+    : 1;
+
+  if (individual > 0) {
+    const individualSeTotalJaForParcela = total / divisor;
+    const individualSeTotalForCompra = (total / totalParcelas) / divisor;
+
+    if (quaseIgual(individual, individualSeTotalJaForParcela)) return total;
+    if (quaseIgual(individual, individualSeTotalForCompra)) return total / totalParcelas;
+  }
+
+  return total / totalParcelas;
+};
+
+export const calcularValorIndividualGasto = (
+  gasto = {},
+  { lookupsResponsavel = [], lookupsDivisaoComum = [] } = {}
+) => {
+  const tipo = normalizarTipo(gasto.tipo);
+  const totalPeriodo = calcularValorTotalPeriodoGasto(gasto, {
+    lookupsResponsavel,
+    lookupsDivisaoComum,
+  });
+
+  if (tipo === 'I') return totalPeriodo;
+  if (tipo === 'C') {
+    return totalPeriodo / Math.max(obterDivisorComum(
+      lookupsDivisaoComum,
+      gasto.responsavel,
+      lookupsResponsavel
+    ), 1);
+  }
+
+  return toNumber(gasto.valor_individual) || totalPeriodo;
+};
+
+export const calcularValorCompraGasto = (
+  gasto = {},
+  { lookupsResponsavel = [], lookupsDivisaoComum = [] } = {}
+) => {
+  const total = toNumber(gasto.valor_total);
+  const totalParcelas = obterTotalParcelas(gasto.parcela);
+  if (totalParcelas <= 1 || total <= 0) return total;
+
+  const totalPeriodo = calcularValorTotalPeriodoGasto(gasto, {
+    lookupsResponsavel,
+    lookupsDivisaoComum,
+  });
+
+  return quaseIgual(totalPeriodo, total) ? total * totalParcelas : total;
+};
+
 export const calcularParticipacoesGasto = (
   gasto = {},
   { lookupsResponsavel = [], lookupsDivisaoComum = [] } = {}
 ) => {
   const tipo = normalizarTipo(gasto.tipo);
-  const total = toNumber(gasto.valor_total);
-  const individual = toNumber(gasto.valor_individual);
+  const total = calcularValorTotalPeriodoGasto(gasto, {
+    lookupsResponsavel,
+    lookupsDivisaoComum,
+  });
+  const individual = calcularValorIndividualGasto(gasto, {
+    lookupsResponsavel,
+    lookupsDivisaoComum,
+  });
 
   if (tipo === 'C') {
     const participantes = obterParticipantesDivisaoComum(

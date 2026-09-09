@@ -113,6 +113,21 @@ const parseDataVencimento = (valor) => {
 const formatarDataVencimento = ({ dia, mes, ano }) =>
   `${String(dia).padStart(2, '0')}/${String(mes).padStart(2, '0')}/${String(ano).slice(-2)}`;
 
+const obterTotalParcelas = (parcela) => {
+  const valor = normalizarChave(parcela);
+  if (!valor) return 1;
+
+  const match = valor.match(/\b\d{1,3}\s*(?:DE|\/|-)\s*(\d{1,3})\b/);
+  const total = match ? Number(match[1]) : 1;
+  return Number.isFinite(total) && total > 0 ? total : 1;
+};
+
+const calcularValorParcela = (valorTotal, parcela) => {
+  const total = numero(valorTotal);
+  const totalParcelas = obterTotalParcelas(parcela);
+  return totalParcelas > 1 ? total / totalParcelas : total;
+};
+
 const buscarDivisorComum = async (tenantId, responsavel = '') => {
   const result = await query(
     `SELECT lookup_code, meaning, tag
@@ -164,6 +179,7 @@ const completarPayload = async (payload, usuario) => {
   const tipo = normalizarTipo(payload.tipo);
   const periodo = normalizarPeriodo(payload.periodo);
   const divisor = tipo === 'C' ? await buscarDivisorComum(usuario.tenant_id, payload.responsavel) : 1;
+  const valorParcela = calcularValorParcela(payload.valor_total, payload.parcela);
 
   return {
     ...payload,
@@ -171,9 +187,10 @@ const completarPayload = async (payload, usuario) => {
     periodo,
     data_venc: dataInfo ? formatarDataVencimento(dataInfo) : payload.data_venc,
     data_pgto: dataPgtoInfo ? formatarDataVencimento(dataPgtoInfo) : payload.data_pgto,
+    valor_total: valorParcela,
     valor_individual: tipo === 'C'
-      ? payload.valor_total / divisor
-      : payload.valor_total,
+      ? valorParcela / divisor
+      : valorParcela,
     mes: dataInfo ? MESES[dataInfo.mes - 1] : '',
     ano: dataInfo ? dataInfo.ano : null,
   };

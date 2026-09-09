@@ -12,7 +12,10 @@ import {
   YAxis,
 } from 'recharts';
 import { formatarMoeda, percentual, toNumber } from './utils/formatters';
-import { agruparPagamentosPorResponsavel } from './utils/rateioResponsaveis';
+import {
+  agruparPagamentosPorResponsavel,
+  calcularValorTotalPeriodoGasto,
+} from './utils/rateioResponsaveis';
 
 const MESES = ['JAN','FEV','MAR','ABR','MAI','JUN','JUL','AGO','SET','OUT','NOV','DEZ'];
 const CORES_CATEGORIAS = ['#6366F1', '#10B981', '#F59E0B', '#EF4444', '#0EA5E9', '#8B5CF6'];
@@ -89,7 +92,6 @@ const normalizarPeriodoGasto = (periodo) => {
 };
 
 const estaPago = (gasto) => normalizarStatusGasto(gasto.status) === 'PAGO';
-const valorTotal = (gasto) => toNumber(gasto.valor_total);
 const valorReceita = (receita) => toNumber(receita.valor);
 
 function Dashboard({
@@ -109,6 +111,8 @@ function Dashboard({
   const gastosPeriodoAnterior = gastos.filter((g) => g.mes === mesAnterior && Number(g.ano) === anoAnterior);
   const receitasPeriodo = receitas.filter((r) => r.mes === mes && Number(r.ano) === ano);
   const receitasPeriodoAnterior = receitas.filter((r) => r.mes === mesAnterior && Number(r.ano) === anoAnterior);
+  const opcoesRateio = { lookupsResponsavel, lookupsDivisaoComum };
+  const valorTotal = (gasto) => calcularValorTotalPeriodoGasto(gasto, opcoesRateio);
 
   const receitasMes = receitasPeriodo.reduce((s, r) => s + valorReceita(r), 0);
   const receitasMesAnterior = receitasPeriodoAnterior.reduce((s, r) => s + valorReceita(r), 0);
@@ -185,7 +189,7 @@ function Dashboard({
           cor={cores.positivo}
         />
         <ResumoCard
-          titulo="Despesa cheia"
+          titulo="Despesa do período"
           valor={formatarMoeda(despesasMes)}
           variacao={variacao(despesasMes, despesasMesAnterior)}
           cor={cores.negativo}
@@ -242,7 +246,7 @@ function Dashboard({
               <div key={item.value} style={boxPeriodo}>
                 <div>
                   <p style={nomeLinha}>{item.value} - {item.label}</p>
-                  <p style={detalheLinha}>{item.qtd} lançamento(s) · cheio {formatarMoeda(item.totalCheio)}</p>
+                  <p style={detalheLinha}>{item.qtd} lançamento(s) · período {formatarMoeda(item.totalCheio)}</p>
                 </div>
                 <strong style={{ color: item.value === 'Q' ? cores.destaque : cores.alerta, fontSize: '18px' }}>
                   {formatarMoeda(item.aPagar)}
