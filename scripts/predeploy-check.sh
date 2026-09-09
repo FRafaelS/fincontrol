@@ -17,6 +17,7 @@ node --check backend/routes/receitas.js
 node --check backend/routes/grupos.js
 node --check backend/routes/lookups.js
 node --check backend/routes/parcelas.js
+node --check backend/services/email.js
 
 echo "Rodando testes do frontend..."
 cd "$ROOT_DIR/frontend"

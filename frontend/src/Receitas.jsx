@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import API_URL from './api';
 import { formatarMoeda, toNumber } from './utils/formatters';
 import { getLookupLabel, lookupKey } from './utils/lookups';
@@ -29,9 +29,9 @@ const hojeISO = () => {
   return local.toISOString().slice(0, 10);
 };
 
-const campoInicial = () => ({
+const campoInicial = (grupoId = '') => ({
   responsavel: '',
-  grupo_id: '',
+  grupo_id: String(grupoId || ''),
   descricao: '',
   valor: '',
   data_receita: hojeISO(),
@@ -96,11 +96,11 @@ function Receitas({
   token,
   receitas = [],
   responsaveis = [],
-  grupos = [],
+  grupoPadraoId = '',
   periodoSelecionado = periodoAtual(),
   onAtualizar,
 }) {
-  const [form, setForm] = useState(campoInicial);
+  const [form, setForm] = useState(() => campoInicial(grupoPadraoId));
   const [editandoId, setEditandoId] = useState(null);
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState('');
@@ -117,6 +117,12 @@ function Receitas({
         ...options.headers,
       },
     });
+
+  useEffect(() => {
+    if (!editandoId) {
+      setForm((prev) => ({ ...prev, grupo_id: String(grupoPadraoId || '') }));
+    }
+  }, [editandoId, grupoPadraoId]);
 
   const receitasNormalizadas = useMemo(
     () => receitas.map(normalizarReceita),
@@ -168,7 +174,7 @@ function Receitas({
   };
 
   const limparFormulario = () => {
-    setForm(campoInicial());
+    setForm(campoInicial(grupoPadraoId));
     setEditandoId(null);
     setErro('');
   };
@@ -291,16 +297,6 @@ function Receitas({
                 ) : (
                   <input style={input} name="responsavel" value={form.responsavel} onChange={handleChange} required />
                 )}
-              </div>
-
-              <div>
-                <label style={label}>Grupo de dados</label>
-                <select style={input} name="grupo_id" value={form.grupo_id} onChange={handleChange}>
-                  <option value="">Padrão</option>
-                  {grupos.map((grupo) => (
-                    <option key={grupo.id} value={grupo.id}>{grupo.nome}</option>
-                  ))}
-                </select>
               </div>
 
               <div>

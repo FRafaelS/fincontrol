@@ -4,6 +4,11 @@ const PERFIS = {
   USER: 'USER',
 };
 
+const MODOS_ACESSO = {
+  PESSOAL: 'PESSOAL',
+  PLATAFORMA: 'PLATAFORMA',
+};
+
 const normalizarPerfil = (perfil) => {
   const valor = String(perfil || '')
     .trim()
@@ -28,6 +33,30 @@ const ehAdminConta = (usuario = {}) => {
   return perfil === PERFIS.SUPER_ADMIN || perfil === PERFIS.ADMIN;
 };
 
+const normalizarModoAcesso = (modo, perfilReal = PERFIS.USER) => {
+  const perfil = normalizarPerfil(perfilReal);
+  if (perfil !== PERFIS.SUPER_ADMIN) return MODOS_ACESSO.PESSOAL;
+
+  const valor = String(modo || '')
+    .trim()
+    .toUpperCase()
+    .replace(/[\s-]+/g, '_');
+
+  if (['PLATAFORMA', 'SUPER_ADMIN', 'SUPERADMIN', 'ADMINISTRACAO', 'ADMINISTRADOR_PLATAFORMA'].includes(valor)) {
+    return MODOS_ACESSO.PLATAFORMA;
+  }
+
+  return MODOS_ACESSO.PESSOAL;
+};
+
+const perfilAtivoPorModo = (perfilReal, modoAcesso) => {
+  const perfil = normalizarPerfil(perfilReal);
+  if (perfil === PERFIS.SUPER_ADMIN && normalizarModoAcesso(modoAcesso, perfil) === MODOS_ACESSO.PESSOAL) {
+    return PERFIS.USER;
+  }
+  return perfil;
+};
+
 const rotuloPerfil = (perfil) => {
   const normalizado = normalizarPerfil(perfil);
   if (normalizado === PERFIS.SUPER_ADMIN) return 'Super admin';
@@ -37,7 +66,10 @@ const rotuloPerfil = (perfil) => {
 
 module.exports = {
   PERFIS,
+  MODOS_ACESSO,
   normalizarPerfil,
+  normalizarModoAcesso,
+  perfilAtivoPorModo,
   ehSuperAdmin,
   ehAdminConta,
   rotuloPerfil,

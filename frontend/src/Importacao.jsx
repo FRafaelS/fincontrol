@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import * as XLSX from 'xlsx';
 import API_URL from './api';
 import { toNumber } from './utils/formatters';
@@ -10,6 +10,7 @@ const CAMPOS_SISTEMA = [
   { value: 'periodo', label: 'Período (Q/F)' },
   { value: 'descricao', label: 'Descrição' },
   { value: 'parcela', label: 'Parcela' },
+  { value: 'tp_despesa', label: 'TP Despesa' },
   { value: 'categoria', label: 'Categoria' },
   { value: 'forma_pgto', label: 'Forma de Pagamento' },
   { value: 'valor_total', label: 'Valor Total' },
@@ -25,6 +26,7 @@ const COLUNAS_MODELO = [
   { header: 'PERIODO', exemplo: 'Q', dica: 'Q para quinzena ou F para final do mês' },
   { header: 'DESCRICAO', exemplo: 'Supermercado', dica: 'Descrição do lançamento' },
   { header: 'PARCELA', exemplo: '01 DE 01', dica: 'Texto livre para controle de parcelas' },
+  { header: 'TP_DESPESA', exemplo: 'Fixa', dica: 'Tipo livre da despesa, se quiser separar fixas, variáveis etc.' },
   { header: 'CATEGORIA', exemplo: 'Alimentação', dica: 'Categoria do gasto' },
   { header: 'FORMA_PGTO', exemplo: 'Pix', dica: 'Forma de pagamento' },
   { header: 'VALOR_TOTAL', exemplo: 250.9, dica: 'Valor total do gasto' },
@@ -37,17 +39,18 @@ const COLUNAS_MODELO = [
 const mapearAutomatico = (coluna) => {
   const c = coluna.toLowerCase().trim();
   if (c.includes('resp')) return 'responsavel';
+  if (c.includes('tp_despesa') || c.includes('tp despesa') || c.includes('tipo_despesa') || c.includes('tipo despesa')) return 'tp_despesa';
   if (c.includes('tipo')) return 'tipo';
   if (c.includes('periodo') || c.includes('período')) return 'periodo';
   if (c.includes('desc') || c.includes('despesa')) return 'descricao';
   if (c.includes('parcela')) return 'parcela';
   if (c.includes('data') && (c.includes('pgto') || c.includes('pagamento') || c.includes('pago'))) return 'data_pgto';
   if (c.includes('categ')) return 'categoria';
+  if (c.includes('status')) return 'status';
   if (c.includes('pgto') || c.includes('pagamento') || c.includes('forma')) return 'forma_pgto';
   if (c.includes('individual') || c === 'mes' || c === 'mês' || c === 'ano') return '';
   if (c.includes('total')) return 'valor_total';
   if (c.includes('venc')) return 'data_venc';
-  if (c.includes('status')) return 'status';
   if (c.includes('obs')) return 'obs';
   return '';
 };
@@ -64,7 +67,7 @@ const converterDataExcel = (valor) => {
   }
   return String(valor);
 };
-function Importacao({ onVoltar, token, grupos = [] }) {
+function Importacao({ onVoltar, token, grupos = [], grupoPadraoId = '' }) {
   const [etapa, setEtapa] = useState('upload');
   const [colunas, setColunas] = useState([]);
   const [mapeamento, setMapeamento] = useState({});
@@ -76,6 +79,10 @@ function Importacao({ onVoltar, token, grupos = [] }) {
   const [erroArquivo, setErroArquivo] = useState('');
 
   const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
+
+  useEffect(() => {
+    if (grupoPadraoId) setGrupoImportacao(String(grupoPadraoId));
+  }, [grupoPadraoId]);
 
   const exportarModelo = () => {
     const wb = XLSX.utils.book_new();
@@ -94,6 +101,7 @@ function Importacao({ onVoltar, token, grupos = [] }) {
       ['PERIODO', 'Obrigatório', 'Use Q para quinzena ou F para final do mês.'],
       ['DESCRICAO', 'Obrigatório', 'Sem descrição o backend rejeita o registro.'],
       ['PARCELA', 'Opcional', 'Exemplo: 02 DE 10.'],
+      ['TP_DESPESA', 'Opcional', 'Classificação livre da despesa.'],
       ['CATEGORIA', 'Opcional', 'Pode usar as categorias cadastradas em Parâmetros.'],
       ['FORMA_PGTO', 'Opcional', 'Pode usar as formas cadastradas em Parâmetros.'],
       ['VALOR_TOTAL', 'Obrigatório', 'Use número sem R$, exemplo: 250.90.'],

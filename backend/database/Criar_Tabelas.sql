@@ -23,6 +23,18 @@ CREATE TABLE IF NOT EXISTS usuarios (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS password_reset_tokens (
+  id SERIAL PRIMARY KEY,
+  tenant_id INTEGER REFERENCES tenants(id),
+  usuario_id INTEGER REFERENCES usuarios(id) ON DELETE CASCADE,
+  token_hash TEXT NOT NULL UNIQUE,
+  expires_at TIMESTAMP NOT NULL,
+  usado_em TIMESTAMP,
+  criado_por_usuario_id INTEGER REFERENCES usuarios(id),
+  ip_solicitacao TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS grupos (
   id SERIAL PRIMARY KEY,
   tenant_id INTEGER REFERENCES tenants(id),
@@ -124,6 +136,9 @@ ALTER TABLE tenants ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURREN
 ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS tenant_id INTEGER REFERENCES tenants(id);
 ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS senha_temporaria INTEGER DEFAULT 0;
 ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS ultimo_login TIMESTAMP;
+ALTER TABLE password_reset_tokens ADD COLUMN IF NOT EXISTS tenant_id INTEGER REFERENCES tenants(id);
+ALTER TABLE password_reset_tokens ADD COLUMN IF NOT EXISTS criado_por_usuario_id INTEGER REFERENCES usuarios(id);
+ALTER TABLE password_reset_tokens ADD COLUMN IF NOT EXISTS ip_solicitacao TEXT;
 
 ALTER TABLE grupos ADD COLUMN IF NOT EXISTS tenant_id INTEGER REFERENCES tenants(id);
 ALTER TABLE usuario_grupos ADD COLUMN IF NOT EXISTS tenant_id INTEGER REFERENCES tenants(id);
@@ -139,6 +154,9 @@ ALTER TABLE mdr_lookup ADD COLUMN IF NOT EXISTS tenant_id INTEGER REFERENCES ten
 CREATE UNIQUE INDEX IF NOT EXISTS idx_tenants_slug_unique ON tenants(slug);
 CREATE INDEX IF NOT EXISTS idx_tenants_ativo ON tenants(ativo);
 CREATE INDEX IF NOT EXISTS idx_usuarios_tenant ON usuarios(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_usuario ON password_reset_tokens(usuario_id);
+CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_hash ON password_reset_tokens(token_hash);
+CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_expira ON password_reset_tokens(expires_at);
 CREATE INDEX IF NOT EXISTS idx_usuario_telas_usuario ON usuario_telas(usuario_id);
 CREATE INDEX IF NOT EXISTS idx_usuario_telas_tenant ON usuario_telas(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_usuario_grupos_usuario ON usuario_grupos(usuario_id);

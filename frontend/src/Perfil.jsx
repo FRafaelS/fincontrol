@@ -30,6 +30,7 @@ function Perfil({ usuario, token, onVoltar, onAtualizar, onGruposAtualizar, troc
   const [senhaForm, setSenhaForm] = useState({ senhaAtual: '', novaSenha: '', confirmarSenha: '' });
   const [usuarios, setUsuarios] = useState([]);
   const [novoUsuario, setNovoUsuario] = useState({ nome: '', email: '', senha: '', perfil: 'USER', tenant_id: usuario.tenant_id || '' });
+  const [resetSenhaUsuario, setResetSenhaUsuario] = useState({ usuario_id: '', novaSenha: '', confirmarSenha: '' });
   const [tenants, setTenants] = useState([]);
   const [novoTenant, setNovoTenant] = useState({
     nome: '',
@@ -73,6 +74,13 @@ function Perfil({ usuario, token, onVoltar, onAtualizar, onGruposAtualizar, troc
   const usuariosGrupoDisponiveis = useMemo(
     () => usuarios.filter((u) => Number(u.tenant_id) === Number(usuario.tenant_id)),
     [usuarios, usuario.tenant_id]
+  );
+  const usuariosRedefinirSenha = useMemo(
+    () => usuarios.filter((u) =>
+      Number(u.id) !== Number(usuario.id) &&
+      (ehSuperAdmin || u.perfil !== 'SUPER_ADMIN')
+    ),
+    [ehSuperAdmin, usuario.id, usuarios]
   );
   const grupoSelecionado = useMemo(
     () => grupos.find((grupo) => String(grupo.id) === String(grupoSelecionadoId)) || null,
@@ -286,6 +294,38 @@ function Perfil({ usuario, token, onVoltar, onAtualizar, onGruposAtualizar, troc
       buscarUsuarios();
     } catch (err) {
       mostrarMensagem(err.message || 'Erro ao cadastrar usuário.', true);
+    } finally {
+      setSalvando(false);
+    }
+  };
+
+  const redefinirSenhaUsuario = async (e) => {
+    e.preventDefault();
+    if (!resetSenhaUsuario.usuario_id) {
+      mostrarMensagem('Selecione o usuário.', true);
+      return;
+    }
+    if (resetSenhaUsuario.novaSenha !== resetSenhaUsuario.confirmarSenha) {
+      mostrarMensagem('As senhas não conferem.', true);
+      return;
+    }
+    if (resetSenhaUsuario.novaSenha.length < 6) {
+      mostrarMensagem('A senha deve ter ao menos 6 caracteres.', true);
+      return;
+    }
+
+    setSalvando(true);
+    try {
+      await fetch(`${API_URL}/api/auth/usuarios/${resetSenhaUsuario.usuario_id}/senha`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({ novaSenha: resetSenhaUsuario.novaSenha }),
+      }).then(lerResposta);
+      mostrarMensagem('Senha temporária definida. O usuário deverá trocar no próximo login.');
+      setResetSenhaUsuario({ usuario_id: '', novaSenha: '', confirmarSenha: '' });
+      buscarUsuarios();
+    } catch (err) {
+      mostrarMensagem(err.message || 'Erro ao redefinir senha.', true);
     } finally {
       setSalvando(false);
     }
@@ -684,6 +724,34 @@ function Perfil({ usuario, token, onVoltar, onAtualizar, onGruposAtualizar, troc
           </div>
 
           <div style={card}>
+            <h2 style={tituloCard}>Redefinir Senha Temporária</h2>
+            <form onSubmit={redefinirSenhaUsuario}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginBottom: '20px' }}>
+                <div>
+                  <label style={label}>Usuário</label>
+                  <select style={input} value={resetSenhaUsuario.usuario_id} onChange={(e) => setResetSenhaUsuario({ ...resetSenhaUsuario, usuario_id: e.target.value })} required>
+                    <option value="">Selecione...</option>
+                    {usuariosRedefinirSenha.map((u) => (
+                      <option key={u.id} value={u.id}>{u.nome} - {u.email}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label style={label}>Nova senha temporária</label>
+                  <input style={input} type="password" value={resetSenhaUsuario.novaSenha} onChange={(e) => setResetSenhaUsuario({ ...resetSenhaUsuario, novaSenha: e.target.value })} required />
+                </div>
+                <div>
+                  <label style={label}>Confirmar senha</label>
+                  <input style={input} type="password" value={resetSenhaUsuario.confirmarSenha} onChange={(e) => setResetSenhaUsuario({ ...resetSenhaUsuario, confirmarSenha: e.target.value })} required />
+                </div>
+              </div>
+              <button type="submit" disabled={salvando || !resetSenhaUsuario.usuario_id} style={btnPrimario}>
+                {salvando ? 'Salvando...' : 'Definir Senha Temporária'}
+              </button>
+            </form>
+          </div>
+
+          <div style={card}>
             <h2 style={tituloCard}>Usuários Cadastrados</h2>
             <TabelaUsuarios usuarios={usuarios} usuarioAtual={usuario} onToggleStatus={toggleStatus} mostrarConta={ehSuperAdmin} />
           </div>
@@ -958,6 +1026,11 @@ function TabelaUsuarios({ usuarios, usuarioAtual, onToggleStatus, mostrarConta =
                 )}>
                   {u.ativo ? 'Ativo' : 'Inativo'}
                 </span>
+                {valorBooleano(u.senha_temporaria) && (
+                  <span style={{ ...tag('var(--app-warning-soft)', 'var(--app-warning-text)', 'var(--app-warning)'), marginLeft: '6px' }}>
+                    Senha temp.
+                  </span>
+                )}
               </td>
               <td style={td}>
                 {u.id !== usuarioAtual.id && u.perfil !== 'SUPER_ADMIN' && (

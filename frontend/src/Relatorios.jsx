@@ -59,7 +59,7 @@ const estaPago = (gasto) => statusIgual(gasto.status, 'PAGO');
 const valorTotalGasto = (gasto) => toNumber(gasto.valor_total);
 const valorIndividualGasto = (gasto) => toNumber(gasto.valor_individual);
 
-function Relatorios({ onVoltar, token }) {
+function Relatorios({ onVoltar, token, grupoAtivoId = '' }) {
   const [gastos, setGastos] = useState([]);
   const [carregando, setCarregando] = useState(true);
   const [lkResponsavel, setLkResponsavel] = useState([]);
@@ -93,7 +93,12 @@ function Relatorios({ onVoltar, token }) {
     buscar('DIVISAO_COMUM', setLkDivisaoComum);
   }, [headers]);
 
-  const gastosFiltrados = gastos.filter((g) => {
+  const gastosContexto = useMemo(
+    () => grupoAtivoId ? gastos.filter((g) => String(g.grupo_id || '') === String(grupoAtivoId)) : gastos,
+    [gastos, grupoAtivoId]
+  );
+
+  const gastosFiltrados = gastosContexto.filter((g) => {
     const okMes = filtroMes ? g.mes === filtroMes : true;
     const okPeriodo = filtroPeriodo ? normalizarPeriodoGasto(g.periodo) === filtroPeriodo : true;
     const okStatus = filtroStatus ? statusIgual(g.status, filtroStatus) : true;
@@ -102,7 +107,7 @@ function Relatorios({ onVoltar, token }) {
     return okMes && okPeriodo && okStatus && okResp && okAno;
   });
 
-  const anos = [...new Set(gastos.map((g) => g.ano).filter(Boolean))].sort((a, b) => b - a);
+  const anos = [...new Set(gastosContexto.map((g) => g.ano).filter(Boolean))].sort((a, b) => b - a);
   const totalCheio = gastosFiltrados.reduce((s, g) => s + valorTotalGasto(g), 0);
   const porResponsavel = agruparPagamentosPorResponsavel(gastosFiltrados, {
     lookupsResponsavel: lkResponsavel,

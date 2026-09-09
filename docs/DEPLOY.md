@@ -39,6 +39,15 @@ NODE_ENV=production
 DATABASE_URL=postgres://usuario:senha@host:5432/fincontrol
 JWT_SECRET=um_segredo_longo_com_32_ou_mais_caracteres
 CORS_ORIGINS=https://seu-frontend.vercel.app
+FRONTEND_URL=https://seu-frontend.vercel.app
+PASSWORD_RESET_ENABLED=true
+PASSWORD_RESET_EXPIRES_MINUTES=30
+EMAIL_FROM="FinControl <nao-responda@seudominio.com>"
+SMTP_HOST=smtp.seudominio.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=usuario
+SMTP_PASS=senha
 ```
 
 Recomendadas:
@@ -140,6 +149,7 @@ Valide manualmente:
 
 - Login do admin inicial.
 - Troca obrigatoria da senha inicial.
+- Recuperacao de senha pelo link enviado por e-mail.
 - Criacao de usuario.
 - Criacao de uma nova conta em Perfil > Contas.
 - Controle de telas em Perfil > Acessos.

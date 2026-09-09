@@ -1,7 +1,13 @@
 const jwt = require('jsonwebtoken');
 const { query } = require('../database/postgres');
 const { JWT_SECRET: SECRET } = require('../config/env');
-const { ehAdminConta, ehSuperAdmin } = require('../utils/perfis');
+const {
+  ehAdminConta,
+  ehSuperAdmin,
+  normalizarPerfil,
+  normalizarModoAcesso,
+  perfilAtivoPorModo,
+} = require('../utils/perfis');
 
 const autenticar = (req, res, next) => {
   const authHeader = req.headers['authorization'];
@@ -67,12 +73,17 @@ const exigirSenhaDefinitiva = async (req, res, next) => {
       });
     }
 
+    const perfilReal = normalizarPerfil(usuario.perfil);
+    const modoAcesso = normalizarModoAcesso(req.usuario?.modo_acesso, perfilReal);
+
     req.usuario = {
       ...req.usuario,
       id: usuario.id,
       nome: usuario.nome,
       email: usuario.email,
-      perfil: usuario.perfil,
+      perfil: perfilAtivoPorModo(perfilReal, modoAcesso),
+      perfil_real: perfilReal,
+      modo_acesso: modoAcesso,
       tenant_id: usuario.tenant_id,
       tenant_nome: usuario.tenant_nome,
     };

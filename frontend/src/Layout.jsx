@@ -42,6 +42,10 @@ function Layout({
   onPeriodoChange,
   tenantNome = '',
   perfilUsuario = '',
+  modoAcesso = '',
+  gruposDisponiveis = [],
+  grupoAtualId = '',
+  onGrupoChange,
   telasPermitidas = [],
   tema = 'light',
   onTemaChange,
@@ -65,6 +69,7 @@ function Layout({
   );
   const pagina = menuItems.find((m) => m.id === paginaAtual);
   const primeiroNome = nomeUsuario?.split(' ')[0] || 'usuário';
+  const rotuloModo = modoAcesso === 'PLATAFORMA' ? 'Plataforma' : 'Meu financeiro';
 
   return (
     <div data-theme={tema} style={{ display: 'flex', minHeight: '100vh', background: paleta.fundo, color: paleta.texto }}>
@@ -199,7 +204,7 @@ function Layout({
         }}>
           <div style={{ minWidth: 0 }}>
             <p style={{ margin: 0, fontSize: '13px', color: paleta.textoSuave }}>
-              Olá, {primeiroNome}{tenantNome ? ` · ${tenantNome}` : ''}
+              Olá, {primeiroNome}{tenantNome ? ` · ${tenantNome}` : ''} · {rotuloModo}
             </p>
             <h1 style={{ margin: 0, fontSize: '20px', fontWeight: '800', color: paleta.texto }}>
               {pagina?.label || 'FinControl'}
@@ -207,6 +212,28 @@ function Layout({
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            {gruposDisponiveis.length > 0 && (
+              <select
+                value={grupoAtualId}
+                onChange={(e) => onGrupoChange?.(e.target.value)}
+                title="Grupo de dados ativo"
+                style={{
+                  height: '38px',
+                  minWidth: '174px',
+                  border: `1px solid ${paleta.borda}`,
+                  borderRadius: '8px',
+                  background: paleta.superficie,
+                  color: paleta.texto,
+                  padding: '0 10px',
+                  fontSize: '13px',
+                  fontWeight: '600',
+                }}
+              >
+                {gruposDisponiveis.map((grupo) => (
+                  <option key={grupo.id} value={grupo.id}>{grupo.nome}</option>
+                ))}
+              </select>
+            )}
             {periodosDisponiveis.length > 0 && (
               <select
                 value={periodoSelecionado}

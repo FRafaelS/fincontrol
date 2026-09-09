@@ -1,5 +1,6 @@
 import API_URL from './api';
 import React, { useCallback, useMemo, useState, useEffect, useRef } from 'react';
+import * as XLSX from 'xlsx';
 import Layout from './Layout';
 import Login from './Login';
 import Perfil from './Perfil';
@@ -23,8 +24,25 @@ import {
 
 const campoVazio = {
   responsavel: '', grupo_id: '', tipo: '', periodo: '', descricao: '', parcela: '',
-  categoria: '', forma_pgto: '', valor_total: '',
+  tp_despesa: '', categoria: '', forma_pgto: '', valor_total: '',
   data_venc: '', data_pgto: '', status: '', obs: '',
+};
+
+const filtrosColunasVazios = {
+  responsavel: '',
+  tipo: '',
+  periodo: '',
+  descricao: '',
+  parcela: '',
+  tp_despesa: '',
+  categoria: '',
+  forma_pgto: '',
+  valor_total: '',
+  valor_individual: '',
+  data_venc: '',
+  data_pgto: '',
+  status: '',
+  obs: '',
 };
 
 const MESES = ['JAN','FEV','MAR','ABR','MAI','JUN','JUL','AGO','SET','OUT','NOV','DEZ'];
@@ -199,23 +217,34 @@ function App() {
   const [filtroStatus, setFiltroStatus] = useState('');
   const [filtroResponsavel, setFiltroResponsavel] = useState('');
   const [filtroBusca, setFiltroBusca] = useState('');
+  const [filtrosColunas, setFiltrosColunas] = useState(filtrosColunasVazios);
+  const [grupoAtivoId, setGrupoAtivoId] = useState('');
   const [periodoSelecionado, setPeriodoSelecionado] = useState(periodoAtual);
   const telasPermitidas = obterTelasUsuario(usuario).filter((tela) => tela !== 'sql' || sqlIdeAtiva);
+  const chaveGrupoAtivo = usuario?.tenant_id ? `grupo_ativo_${usuario.tenant_id}` : 'grupo_ativo';
+  const gastosContexto = useMemo(
+    () => grupoAtivoId ? gastos.filter((g) => String(g.grupo_id || '') === String(grupoAtivoId)) : gastos,
+    [gastos, grupoAtivoId]
+  );
+  const receitasContexto = useMemo(
+    () => grupoAtivoId ? receitas.filter((r) => String(r.grupo_id || '') === String(grupoAtivoId)) : receitas,
+    [receitas, grupoAtivoId]
+  );
 
   const periodosDisponiveis = useMemo(() => {
     const periodos = new Set([periodoAtual()]);
-    gastos.forEach((g) => {
+    gastosContexto.forEach((g) => {
       if (g.mes && g.ano) periodos.add(`${g.mes}/${g.ano}`);
     });
-    receitas.forEach((r) => {
+    receitasContexto.forEach((r) => {
       if (r.mes && r.ano) periodos.add(`${r.mes}/${r.ano}`);
     });
     return [...periodos].sort(ordenarPeriodos);
-  }, [gastos, receitas]);
+  }, [gastosContexto, receitasContexto]);
 
   const anosLancamentos = useMemo(
-    () => [...new Set(gastos.map((g) => g.ano).filter(Boolean))].sort((a, b) => Number(b) - Number(a)),
-    [gastos]
+    () => [...new Set(gastosContexto.map((g) => g.ano).filter(Boolean))].sort((a, b) => Number(b) - Number(a)),
+    [gastosContexto]
   );
 
   useEffect(() => {
@@ -226,7 +255,47 @@ function App() {
     localStorage.setItem('tema_padrao_escuro_v2', 'S');
   }, [tema]);
 
+  useEffect(() => {
+    if (!usuario) {
+      setGrupoAtivoId('');
+      return;
+    }
+
+    setGrupoAtivoId((atual) => {
+      const salvo = localStorage.getItem(chaveGrupoAtivo) || '';
+      const candidato = atual || salvo;
+
+      if (candidato && grupos.some((grupo) => String(grupo.id) === String(candidato))) {
+        localStorage.setItem(chaveGrupoAtivo, String(candidato));
+        return String(candidato);
+      }
+
+      const proximo = grupos[0] ? String(grupos[0].id) : '';
+      if (proximo) localStorage.setItem(chaveGrupoAtivo, proximo);
+      else localStorage.removeItem(chaveGrupoAtivo);
+      return proximo;
+    });
+  }, [chaveGrupoAtivo, grupos, usuario]);
+
+  useEffect(() => {
+    if (mostrarForm && !editandoId) {
+      setForm((atual) => ({ ...atual, grupo_id: grupoAtivoId || (grupos[0] ? String(grupos[0].id) : '') }));
+    }
+  }, [editandoId, grupoAtivoId, grupos, mostrarForm]);
+
   const alternarTema = () => setTema((atual) => (atual === 'dark' ? 'light' : 'dark'));
+
+  const alterarGrupoAtivo = useCallback((grupoId) => {
+    const proximoGrupoId = String(grupoId || '');
+    setGrupoAtivoId(proximoGrupoId);
+    setSelecionados([]);
+    setMenuAcoesAberto(false);
+    setMostrarForm(false);
+    setEditandoId(null);
+    setErroForm('');
+    if (proximoGrupoId) localStorage.setItem(chaveGrupoAtivo, proximoGrupoId);
+    else localStorage.removeItem(chaveGrupoAtivo);
+  }, [chaveGrupoAtivo]);
 
   // Fetch autenticado
   const fetchAuth = useCallback((url, options = {}) => {
@@ -256,6 +325,7 @@ function App() {
     setGrupos([]);
     setSqlIdeAtiva(false);
     setSelecionados([]);
+    setGrupoAtivoId('');
     setVerPerfil(false);
     setPagina('dashboard');
   }, []);
@@ -414,7 +484,12 @@ function App() {
     setForm((prev) => ({ ...prev, [name]: value }));
   };
 
-  const handleNovoGasto = () => { setForm(campoVazio); setEditandoId(null); setErroForm(''); setMostrarForm(true); };
+  const handleNovoGasto = () => {
+    setForm({ ...campoVazio, grupo_id: grupoAtivoId || (grupos[0] ? String(grupos[0].id) : '') });
+    setEditandoId(null);
+    setErroForm('');
+    setMostrarForm(true);
+  };
 
   const abrirNovoLancamento = () => {
     if (!usuarioPodeAcessarTela(usuario, 'gastos', { sqlIdeAtiva })) return;
@@ -436,6 +511,7 @@ function App() {
       responsavel: gasto.responsavel || '', grupo_id: gasto.grupo_id || '',
       tipo: gasto.tipo || '', periodo: gasto.periodo || '',
       descricao: gasto.descricao || '', parcela: gasto.parcela || '',
+      tp_despesa: gasto.tp_despesa || '',
       categoria: gasto.categoria || '', forma_pgto: gasto.forma_pgto || '',
       valor_total: gasto.valor_total || '',
       data_venc: gasto.data_venc || '', data_pgto: gasto.data_pgto || '',
@@ -496,6 +572,7 @@ function App() {
       method: editandoId ? 'PUT' : 'POST',
       body: JSON.stringify({
         ...form,
+        grupo_id: form.grupo_id || grupoAtivoId || grupos[0]?.id || undefined,
         tipo: tipoNormalizado,
         periodo: periodoGasto,
         valor_total: toNumber(form.valor_total),
@@ -558,23 +635,50 @@ function App() {
   const limparFiltros = () => {
     setFiltroMes(''); setFiltroAno(''); setFiltroPeriodo(''); setFiltroStatus('');
     setFiltroResponsavel(''); setFiltroBusca('');
+    setFiltrosColunas(filtrosColunasVazios);
   };
 
+  const atualizarFiltroColuna = (campo, valor) => {
+    setFiltrosColunas((atual) => ({ ...atual, [campo]: valor }));
+  };
+
+  const existeFiltroColuna = Object.values(filtrosColunas).some((valor) => String(valor || '').trim());
   const termoBusca = normalizarTextoBusca(filtroBusca);
-  const gastosFiltrados = gastos.filter((g) => {
+  const gastosFiltrados = gastosContexto.filter((g) => {
     const okMes = filtroMes ? g.mes === filtroMes : true;
     const okAno = filtroAno ? String(g.ano) === filtroAno : true;
     const okPeriodo = filtroPeriodo ? normalizarPeriodoGasto(g.periodo) === filtroPeriodo : true;
     const okStatus = filtroStatus ? statusIgual(g.status, filtroStatus) : true;
     const okResp = filtroResponsavel ? g.responsavel === filtroResponsavel : true;
+    const valoresColuna = {
+      responsavel: [g.responsavel, getLookupLabel(lkResponsavel, g.responsavel)],
+      tipo: [g.tipo, normalizarTipoGasto(g.tipo)],
+      periodo: [g.periodo, normalizarPeriodoGasto(g.periodo), periodoGastoLabel(g.periodo)],
+      descricao: [g.descricao],
+      parcela: [g.parcela],
+      tp_despesa: [g.tp_despesa],
+      categoria: [g.categoria, getLookupLabel(lkCategoria, g.categoria)],
+      forma_pgto: [g.forma_pgto, getLookupLabel(lkFormaPgto, g.forma_pgto)],
+      valor_total: [g.valor_total, formatarMoeda(g.valor_total)],
+      valor_individual: [g.valor_individual, formatarMoeda(g.valor_individual)],
+      data_venc: [g.data_venc],
+      data_pgto: [g.data_pgto],
+      status: [g.status, getLookupLabel(lkStatus, g.status)],
+      obs: [g.obs],
+    };
+    const okColunas = Object.entries(filtrosColunas).every(([campo, filtro]) => {
+      const termo = normalizarTextoBusca(filtro);
+      if (!termo) return true;
+      return (valoresColuna[campo] || [g[campo]]).some((valor) => normalizarTextoBusca(valor).includes(termo));
+    });
     const okBusca = termoBusca
       ? [
-          g.id,
           g.tipo,
           normalizarTipoGasto(g.tipo),
           periodoGastoLabel(g.periodo),
           normalizarPeriodoGasto(g.periodo),
           g.parcela,
+          g.tp_despesa,
           g.descricao,
           g.categoria,
           getLookupLabel(lkCategoria, g.categoria),
@@ -591,10 +695,10 @@ function App() {
           formatarMoeda(g.valor_individual),
         ].some((valor) => normalizarTextoBusca(valor).includes(termoBusca))
       : true;
-    return okMes && okAno && okPeriodo && okStatus && okResp && okBusca;
+    return okMes && okAno && okPeriodo && okStatus && okResp && okColunas && okBusca;
   });
 
-  const gastosPendentes = gastos.filter((g) => !statusIgual(g.status, 'PAGO'));
+  const gastosPendentes = gastosContexto.filter((g) => !statusIgual(g.status, 'PAGO'));
   const vencidos = gastosPendentes.filter((g) => classificarVencimento(g.data_venc, diasAlerta) === 'vencido');
   const vencem_hoje = gastosPendentes.filter((g) => classificarVencimento(g.data_venc, diasAlerta) === 'hoje');
   const proximos = gastosPendentes.filter((g) => classificarVencimento(g.data_venc, diasAlerta) === 'proximo');
@@ -608,7 +712,7 @@ function App() {
     estaPago: (gasto) => statusIgual(gasto.status, 'PAGO'),
     normalizarPeriodo: normalizarPeriodoGasto,
   }).filter((item) => item.aPagar > 0);
-  const filtersAtivos = filtroMes || filtroAno || filtroPeriodo || filtroStatus || filtroResponsavel || filtroBusca;
+  const filtersAtivos = filtroMes || filtroAno || filtroPeriodo || filtroStatus || filtroResponsavel || filtroBusca || existeFiltroColuna;
   const todosSelecionados = gastosFiltrados.length > 0 && gastosFiltrados.every((g) => selecionados.includes(g.id));
   const divisorComum = obterDivisorComum(lkDivisaoComum, form.responsavel, lkResponsavel);
   const valorIndividualCalculado = calcularValorIndividualPorDivisao(
@@ -619,6 +723,35 @@ function App() {
     lkResponsavel
   );
   const mesAnoCalculado = periodoPorData(form.data_venc);
+
+  const exportarLancamentos = () => {
+    const wb = XLSX.utils.book_new();
+    const dados = gastosFiltrados.map((g) => ({
+      RESP: getLookupLabel(lkResponsavel, g.responsavel),
+      TIPO: normalizarTipoGasto(g.tipo) || g.tipo || '',
+      PERIODO: normalizarPeriodoGasto(g.periodo) || g.periodo || '',
+      DESPESA: g.descricao || '',
+      PARCELA: g.parcela || '',
+      TP_DESPESA: g.tp_despesa || '',
+      CATEGORIA: getLookupLabel(lkCategoria, g.categoria),
+      'FORMA DE PGTO': getLookupLabel(lkFormaPgto, g.forma_pgto),
+      VALOR_TOTAL: toNumber(g.valor_total),
+      VALOR_INDIVIDUAL: toNumber(g.valor_individual),
+      DATA_VENC: g.data_venc || '',
+      DATA_PGTO: g.data_pgto || '',
+      STATUS_PGTO: getLookupLabel(lkStatus, g.status),
+      OBS: g.obs || '',
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(dados);
+    ws['!cols'] = [
+      { wch: 22 }, { wch: 8 }, { wch: 10 }, { wch: 32 }, { wch: 12 }, { wch: 14 },
+      { wch: 18 }, { wch: 18 }, { wch: 14 }, { wch: 18 }, { wch: 12 }, { wch: 12 },
+      { wch: 14 }, { wch: 28 },
+    ];
+    XLSX.utils.book_append_sheet(wb, ws, 'Lancamentos');
+    XLSX.writeFile(wb, `lancamentos_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
   const temaEscuro = tema === 'dark';
   const tabelaLancamentos = temaEscuro
     ? {
@@ -753,6 +886,25 @@ function App() {
     border: `1px solid ${temaEscuro ? '#334155' : '#CBD5E1'}`,
     boxShadow: temaEscuro ? 'inset 0 1px 0 rgba(255,255,255,0.04)' : '0 1px 2px rgba(15,23,42,0.05)',
   };
+  const inputFiltroColuna = {
+    width: '100%',
+    minWidth: 0,
+    height: '30px',
+    padding: '5px 7px',
+    borderRadius: '6px',
+    border: `1px solid ${tabelaLancamentos.border}`,
+    background: temaEscuro ? '#111827' : '#FFFFFF',
+    color: tabelaLancamentos.text,
+    boxSizing: 'border-box',
+    fontSize: '12px',
+    outline: 'none',
+  };
+  const thFiltroLancamento = {
+    ...thLancamento,
+    paddingTop: '7px',
+    paddingBottom: '9px',
+    background: temaEscuro ? '#0F172A' : '#F1F5F9',
+  };
 
   // Tela de login
   if (!usuario) return <Login onLogin={handleLogin} />;
@@ -784,13 +936,13 @@ function App() {
 
   const renderPagina = () => {
     if (!usuarioPodeAcessarTela(usuario, pagina, { sqlIdeAtiva })) return <AcessoNegado />;
-    if (pagina === 'dashboard')  return <Dashboard gastos={gastos} receitas={receitas} periodoSelecionado={periodoSelecionado} onAdicionarLancamento={usuarioPodeAcessarTela(usuario, 'gastos', { sqlIdeAtiva }) ? abrirNovoLancamento : null} onAdicionarReceita={usuarioPodeAcessarTela(usuario, 'receitas', { sqlIdeAtiva }) ? abrirReceitas : null} lookupsResponsavel={lkResponsavel} lookupsDivisaoComum={lkDivisaoComum} />;
+    if (pagina === 'dashboard')  return <Dashboard gastos={gastosContexto} receitas={receitasContexto} periodoSelecionado={periodoSelecionado} onAdicionarLancamento={usuarioPodeAcessarTela(usuario, 'gastos', { sqlIdeAtiva }) ? abrirNovoLancamento : null} onAdicionarReceita={usuarioPodeAcessarTela(usuario, 'receitas', { sqlIdeAtiva }) ? abrirReceitas : null} lookupsResponsavel={lkResponsavel} lookupsDivisaoComum={lkDivisaoComum} />;
     if (pagina === 'parametros') return <Lookups onVoltar={() => { setPagina('gastos'); buscarTodasLookups(); buscarStatusSql(); }} token={token} />;
-    if (pagina === 'importacao') return <Importacao onVoltar={() => { setPagina('gastos'); buscarGastos(); }} token={token} grupos={grupos} />;
+    if (pagina === 'importacao') return <Importacao onVoltar={() => { setPagina('gastos'); buscarGastos(); }} token={token} grupos={grupos} grupoPadraoId={grupoAtivoId} />;
     if (pagina === 'parcelas')   return <Parcelas onVoltar={() => { setPagina('gastos'); buscarGastos(); }} token={token} grupos={grupos} />;
-    if (pagina === 'relatorios') return <Relatorios onVoltar={() => setPagina('gastos')} token={token} />;
-    if (pagina === 'metas')      return <Metas gastos={gastos} periodoSelecionado={periodoSelecionado} />;
-    if (pagina === 'receitas')   return <Receitas token={token} receitas={receitas} responsaveis={lkResponsavel} periodoSelecionado={periodoSelecionado} onAtualizar={buscarReceitas} grupos={grupos} />;
+    if (pagina === 'relatorios') return <Relatorios onVoltar={() => setPagina('gastos')} token={token} grupoAtivoId={grupoAtivoId} />;
+    if (pagina === 'metas')      return <Metas gastos={gastosContexto} periodoSelecionado={periodoSelecionado} />;
+    if (pagina === 'receitas')   return <Receitas token={token} receitas={receitasContexto} responsaveis={lkResponsavel} periodoSelecionado={periodoSelecionado} onAtualizar={buscarReceitas} grupoPadraoId={grupoAtivoId} />;
     if (pagina === 'sql')        return usuarioEhSuperAdmin(usuario) && sqlIdeAtiva ? <SqlIde token={token} /> : renderGastos();
     return renderGastos();
   };
@@ -895,6 +1047,9 @@ function App() {
               </div>
             )}
           </div>
+          <button onClick={exportarLancamentos} disabled={gastosFiltrados.length === 0} style={{ background: gastosFiltrados.length > 0 ? 'var(--app-success)' : 'var(--app-surface-soft)', color: gastosFiltrados.length > 0 ? '#fff' : 'var(--app-faint)', border: `1px solid ${gastosFiltrados.length > 0 ? 'var(--app-success)' : 'var(--app-border)'}`, borderRadius: '8px', padding: '8px 16px', cursor: gastosFiltrados.length > 0 ? 'pointer' : 'default', fontSize: '14px', fontWeight: '700' }}>
+            Exportar
+          </button>
         </div>
 
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flex: 1, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
@@ -930,7 +1085,7 @@ function App() {
       {mostrarForm && (
         <div style={{ background: 'var(--app-surface)', borderRadius: '12px', padding: '24px', marginBottom: '16px', boxShadow: 'var(--app-shadow)', border: '1px solid var(--app-border)' }}>
           <h2 style={{ fontSize: '16px', fontWeight: '800', marginBottom: '20px', color: 'var(--app-text)', paddingBottom: '12px', borderBottom: '1px solid var(--app-border)' }}>
-            {editandoId ? `✏️ Editando gasto #${editandoId}` : '+ Novo Gasto'}
+            {editandoId ? '✏️ Editando gasto' : '+ Novo Gasto'}
           </h2>
           {erroForm && (
             <div style={{ background: 'var(--app-danger-soft)', border: '1px solid var(--app-danger)', borderRadius: '8px', padding: '12px', marginBottom: '16px', color: 'var(--app-danger-text)', fontSize: '14px', fontWeight: '700' }}>
@@ -939,24 +1094,18 @@ function App() {
           )}
           <form onSubmit={handleSubmit}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
-              <div><label style={label}>Descrição *</label><input style={input} name="descricao" value={form.descricao} onChange={handleChange} required /></div>
+              <div><label style={label}>Responsável</label><select style={input} name="responsavel" value={form.responsavel} onChange={handleChange}><option value="">Selecione...</option>{lkResponsavel.map((l) => <option key={lookupKey(l)} value={l.MEANING}>{l.LOOKUP_CODE}</option>)}</select></div>
+              <div><label style={label}>Tipo *</label><select style={input} name="tipo" value={form.tipo} onChange={handleChange} required><option value="">Selecione...</option>{lkTipo.map((l) => <option key={lookupKey(l)} value={l.MEANING}>{l.LOOKUP_CODE}</option>)}</select></div>
+              <div><label style={label}>Período *</label><select style={input} name="periodo" value={form.periodo} onChange={handleChange} required><option value="">Selecione...</option>{PERIODOS_GASTO.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}</select></div>
+              <div><label style={label}>Despesa *</label><input style={input} name="descricao" value={form.descricao} onChange={handleChange} required /></div>
+              <div><label style={label}>Parcela (ex: 02 DE 10)</label><input style={input} name="parcela" value={form.parcela} onChange={handleChange} /></div>
+              <div><label style={label}>TP Despesa</label><input style={input} name="tp_despesa" value={form.tp_despesa} onChange={handleChange} /></div>
               <div><label style={label}>Categoria</label><select style={input} name="categoria" value={form.categoria} onChange={handleChange}><option value="">Selecione...</option>{lkCategoria.map((l) => <option key={lookupKey(l)} value={l.MEANING}>{l.LOOKUP_CODE}</option>)}</select></div>
               <div><label style={label}>Forma de Pagamento</label><select style={input} name="forma_pgto" value={form.forma_pgto} onChange={handleChange}><option value="">Selecione...</option>{lkFormaPgto.map((l) => <option key={lookupKey(l)} value={l.MEANING}>{l.LOOKUP_CODE}</option>)}</select></div>
               <div>
                 <label style={label}>Valor Total (R$) *</label>
                 <input style={input} name="valor_total" type="number" step="0.01" value={form.valor_total} onChange={handleChange} required />
               </div>
-              <div><label style={label}>Parcela (ex: 02 DE 10)</label><input style={input} name="parcela" value={form.parcela} onChange={handleChange} /></div>
-              <div><label style={label}>Responsável</label><select style={input} name="responsavel" value={form.responsavel} onChange={handleChange}><option value="">Selecione...</option>{lkResponsavel.map((l) => <option key={lookupKey(l)} value={l.MEANING}>{l.LOOKUP_CODE}</option>)}</select></div>
-              <div>
-                <label style={label}>Grupo de dados</label>
-                <select style={input} name="grupo_id" value={form.grupo_id} onChange={handleChange}>
-                  <option value="">Padrão</option>
-                  {grupos.map((grupo) => <option key={grupo.id} value={grupo.id}>{grupo.nome}</option>)}
-                </select>
-              </div>
-              <div><label style={label}>Tipo *</label><select style={input} name="tipo" value={form.tipo} onChange={handleChange} required><option value="">Selecione...</option>{lkTipo.map((l) => <option key={lookupKey(l)} value={l.MEANING}>{l.LOOKUP_CODE}</option>)}</select></div>
-              <div><label style={label}>Período *</label><select style={input} name="periodo" value={form.periodo} onChange={handleChange} required><option value="">Selecione...</option>{PERIODOS_GASTO.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}</select></div>
               <div><label style={label}>Vencimento *</label><input style={input} name="data_venc" value={form.data_venc} onChange={handleChange} placeholder="31/03/26" required /></div>
               <div><label style={label}>Data Pgto</label><input style={input} name="data_pgto" value={form.data_pgto} onChange={handleChange} placeholder="31/03/26" /></div>
               <div><label style={label}>Status</label><select style={input} name="status" value={form.status} onChange={handleChange}><option value="">Selecione...</option>{lkStatus.map((l) => <option key={lookupKey(l)} value={l.MEANING}>{l.LOOKUP_CODE}</option>)}</select></div>
@@ -1030,27 +1179,46 @@ function App() {
           </div>
         </div>
         <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', minWidth: '1320px', borderCollapse: 'separate', borderSpacing: 0, fontSize: '13px' }}>
+          <table style={{ width: '100%', minWidth: '1720px', borderCollapse: 'separate', borderSpacing: 0, fontSize: '13px' }}>
             <thead>
               <tr style={{ textAlign: 'left' }}>
                 <th style={{ ...thLancamento, width: '44px' }}><input type="checkbox" checked={todosSelecionados} onChange={toggleSelecionarTodos} style={{ cursor: 'pointer' }} /></th>
-                <th style={{ ...thLancamento, width: '78px' }}>ID</th>
-                <th style={{ ...thLancamento, width: '78px' }}>Tipo</th>
-                <th style={{ ...thLancamento, width: '92px' }}>Período</th>
-                <th style={{ ...thLancamento, width: '112px' }}>Parcela</th>
-                <th style={{ ...thLancamento, minWidth: '220px' }}>Descrição</th>
-                <th style={{ ...thLancamento, width: '150px' }}>Categoria</th>
-                <th style={{ ...thLancamento, width: '170px' }}>Responsável</th>
-                <th style={{ ...thLancamento, width: '150px' }}>Vencimento</th>
-                <th style={{ ...thLancamento, width: '130px', textAlign: 'right' }}>Valor Total</th>
-                <th style={{ ...thLancamento, width: '126px', textAlign: 'right' }}>Valor Ind.</th>
-                <th style={{ ...thLancamento, width: '118px' }}>Data Pgto</th>
-                <th style={{ ...thLancamento, width: '128px' }}>Status</th>
+                <th style={{ ...thLancamento, width: '160px' }}>RESP</th>
+                <th style={{ ...thLancamento, width: '78px' }}>TIPO</th>
+                <th style={{ ...thLancamento, width: '92px' }}>PERIODO</th>
+                <th style={{ ...thLancamento, minWidth: '220px' }}>DESPESA</th>
+                <th style={{ ...thLancamento, width: '112px' }}>PARCELA</th>
+                <th style={{ ...thLancamento, width: '130px' }}>TP_DESPESA</th>
+                <th style={{ ...thLancamento, width: '150px' }}>CATEGORIA</th>
+                <th style={{ ...thLancamento, width: '150px' }}>FORMA DE PGTO</th>
+                <th style={{ ...thLancamento, width: '130px', textAlign: 'right' }}>VALOR_TOTAL</th>
+                <th style={{ ...thLancamento, width: '138px', textAlign: 'right' }}>VALOR_INDIVIDUAL</th>
+                <th style={{ ...thLancamento, width: '142px' }}>DATA_VENC</th>
+                <th style={{ ...thLancamento, width: '118px' }}>DATA_PGTO</th>
+                <th style={{ ...thLancamento, width: '128px' }}>STATUS_PGTO</th>
+                <th style={{ ...thLancamento, width: '190px' }}>OBS</th>
+              </tr>
+              <tr style={{ textAlign: 'left' }}>
+                <th style={thFiltroLancamento} />
+                <th style={thFiltroLancamento}><input style={inputFiltroColuna} value={filtrosColunas.responsavel} onChange={(e) => atualizarFiltroColuna('responsavel', e.target.value)} aria-label="Filtrar responsável" /></th>
+                <th style={thFiltroLancamento}><input style={inputFiltroColuna} value={filtrosColunas.tipo} onChange={(e) => atualizarFiltroColuna('tipo', e.target.value)} aria-label="Filtrar tipo" /></th>
+                <th style={thFiltroLancamento}><input style={inputFiltroColuna} value={filtrosColunas.periodo} onChange={(e) => atualizarFiltroColuna('periodo', e.target.value)} aria-label="Filtrar período" /></th>
+                <th style={thFiltroLancamento}><input style={inputFiltroColuna} value={filtrosColunas.descricao} onChange={(e) => atualizarFiltroColuna('descricao', e.target.value)} aria-label="Filtrar despesa" /></th>
+                <th style={thFiltroLancamento}><input style={inputFiltroColuna} value={filtrosColunas.parcela} onChange={(e) => atualizarFiltroColuna('parcela', e.target.value)} aria-label="Filtrar parcela" /></th>
+                <th style={thFiltroLancamento}><input style={inputFiltroColuna} value={filtrosColunas.tp_despesa} onChange={(e) => atualizarFiltroColuna('tp_despesa', e.target.value)} aria-label="Filtrar tipo de despesa" /></th>
+                <th style={thFiltroLancamento}><input style={inputFiltroColuna} value={filtrosColunas.categoria} onChange={(e) => atualizarFiltroColuna('categoria', e.target.value)} aria-label="Filtrar categoria" /></th>
+                <th style={thFiltroLancamento}><input style={inputFiltroColuna} value={filtrosColunas.forma_pgto} onChange={(e) => atualizarFiltroColuna('forma_pgto', e.target.value)} aria-label="Filtrar forma de pagamento" /></th>
+                <th style={thFiltroLancamento}><input style={{ ...inputFiltroColuna, textAlign: 'right' }} value={filtrosColunas.valor_total} onChange={(e) => atualizarFiltroColuna('valor_total', e.target.value)} aria-label="Filtrar valor total" /></th>
+                <th style={thFiltroLancamento}><input style={{ ...inputFiltroColuna, textAlign: 'right' }} value={filtrosColunas.valor_individual} onChange={(e) => atualizarFiltroColuna('valor_individual', e.target.value)} aria-label="Filtrar valor individual" /></th>
+                <th style={thFiltroLancamento}><input style={inputFiltroColuna} value={filtrosColunas.data_venc} onChange={(e) => atualizarFiltroColuna('data_venc', e.target.value)} aria-label="Filtrar data de vencimento" /></th>
+                <th style={thFiltroLancamento}><input style={inputFiltroColuna} value={filtrosColunas.data_pgto} onChange={(e) => atualizarFiltroColuna('data_pgto', e.target.value)} aria-label="Filtrar data de pagamento" /></th>
+                <th style={thFiltroLancamento}><input style={inputFiltroColuna} value={filtrosColunas.status} onChange={(e) => atualizarFiltroColuna('status', e.target.value)} aria-label="Filtrar status" /></th>
+                <th style={thFiltroLancamento}><input style={inputFiltroColuna} value={filtrosColunas.obs} onChange={(e) => atualizarFiltroColuna('obs', e.target.value)} aria-label="Filtrar observação" /></th>
               </tr>
             </thead>
             <tbody>
               {gastosFiltrados.length === 0 ? (
-                <tr><td colSpan="13" style={{ ...tdLancamento, padding: '48px', textAlign: 'center', color: tabelaLancamentos.muted }}>
+                <tr><td colSpan="15" style={{ ...tdLancamento, padding: '48px', textAlign: 'center', color: tabelaLancamentos.muted }}>
                   {filtersAtivos ? '🔍 Nenhum gasto encontrado.' : '💡 Nenhum gasto cadastrado ainda.'}
                 </td></tr>
               ) : gastosFiltrados.map((g, index) => {
@@ -1062,7 +1230,7 @@ function App() {
                 return (
                   <tr key={g.id} onClick={() => toggleSelecionado(g.id)} style={linhaLancamento(tipoVenc, sel, index)}>
                     <td style={{ ...tdLancamento, textAlign: 'center' }} onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={sel} onChange={() => toggleSelecionado(g.id)} style={{ cursor: 'pointer' }} /></td>
-                    <td style={{ ...tdLancamento, color: tabelaLancamentos.muted, fontSize: '12px', fontWeight: '800' }}>{g.id}</td>
+                    <td style={{ ...tdLancamento, color: tabelaLancamentos.text, fontWeight: '800', whiteSpace: 'normal', lineHeight: 1.35 }}>{getLookupLabel(lkResponsavel, g.responsavel)}</td>
                     <td style={tdLancamento}>
                       <span style={chipLancamento(tipoNormalizado === 'C' ? (temaEscuro ? '#A5B4FC' : '#4338CA') : (temaEscuro ? '#6EE7B7' : '#047857'), tipoNormalizado === 'C' ? 'rgba(99,102,241,0.16)' : 'rgba(16,185,129,0.14)')}>
                         {tipoNormalizado || '—'}
@@ -1073,24 +1241,26 @@ function App() {
                         {periodoNormalizado || '—'}
                       </span>
                     </td>
-                    <td style={{ ...tdLancamento, color: tabelaLancamentos.muted, fontWeight: '800' }}>{g.parcela || '—'}</td>
                     <td style={{ ...tdLancamento, fontWeight: '800', color: tabelaLancamentos.text, whiteSpace: 'normal', lineHeight: 1.35 }}>{g.descricao}</td>
+                    <td style={{ ...tdLancamento, color: tabelaLancamentos.muted, fontWeight: '800' }}>{g.parcela || '—'}</td>
+                    <td style={{ ...tdLancamento, color: tabelaLancamentos.muted, fontWeight: '700' }}>{g.tp_despesa || '—'}</td>
                     <td style={{ ...tdLancamento, color: tabelaLancamentos.muted, fontWeight: '700' }}>{getLookupLabel(lkCategoria, g.categoria)}</td>
-                    <td style={{ ...tdLancamento, color: tabelaLancamentos.text, fontWeight: '800', whiteSpace: 'normal', lineHeight: 1.35 }}>{getLookupLabel(lkResponsavel, g.responsavel)}</td>
+                    <td style={{ ...tdLancamento, color: tabelaLancamentos.muted, fontWeight: '700' }}>{getLookupLabel(lkFormaPgto, g.forma_pgto)}</td>
+                    <td style={{ ...tdLancamento, textAlign: 'right', fontWeight: '900', color: tabelaLancamentos.text, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{formatarMoeda(g.valor_total)}</td>
+                    <td style={{ ...tdLancamento, textAlign: 'right', fontWeight: '900', color: tabelaLancamentos.muted, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{formatarMoeda(g.valor_individual)}</td>
                     <td style={{ ...tdLancamento, color: tabelaLancamentos.vencimento[tipoVenc], fontWeight: tipoVenc !== 'normal' ? '900' : '800', whiteSpace: 'nowrap' }}>
                       {g.data_venc || '—'}
                       {!statusIgual(g.status, 'PAGO') && tipoVenc === 'vencido' && <span style={badgeVencimento('vencido')}>{Math.abs(dias)}d atrás</span>}
                       {!statusIgual(g.status, 'PAGO') && tipoVenc === 'hoje' && <span style={badgeVencimento('hoje')}>hoje</span>}
                       {!statusIgual(g.status, 'PAGO') && tipoVenc === 'proximo' && <span style={badgeVencimento('proximo')}>{dias}d</span>}
                     </td>
-                    <td style={{ ...tdLancamento, textAlign: 'right', fontWeight: '900', color: tabelaLancamentos.text, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{formatarMoeda(g.valor_total)}</td>
-                    <td style={{ ...tdLancamento, textAlign: 'right', fontWeight: '900', color: tabelaLancamentos.muted, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{formatarMoeda(g.valor_individual)}</td>
                     <td style={{ ...tdLancamento, color: tabelaLancamentos.muted, fontWeight: '700' }}>{g.data_pgto || '—'}</td>
                     <td style={tdLancamento}>
                       <span style={statusLancamento(g.status)}>
                         {getLookupLabel(lkStatus, g.status)}
                       </span>
                     </td>
+                    <td style={{ ...tdLancamento, color: tabelaLancamentos.muted, whiteSpace: 'normal', lineHeight: 1.35 }}>{g.obs || '—'}</td>
                   </tr>
                 );
               })}
@@ -1114,6 +1284,10 @@ function App() {
       onPeriodoChange={setPeriodoSelecionado}
       tenantNome={usuario?.tenant_nome}
       perfilUsuario={usuario?.perfil}
+      modoAcesso={usuario?.modo_acesso}
+      gruposDisponiveis={grupos}
+      grupoAtualId={grupoAtivoId}
+      onGrupoChange={alterarGrupoAtivo}
       telasPermitidas={telasPermitidas}
       tema={tema}
       onTemaChange={alternarTema}

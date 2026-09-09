@@ -15,6 +15,40 @@ const temConfigDbSeparada = ['DB_HOST', 'DB_NAME', 'DB_USER', 'DB_PASSWORD'].eve
   Boolean(process.env[nome])
 );
 
+const boolEnv = (nome, padrao = false) => {
+  const valor = process.env[nome];
+  if (valor === undefined || valor === '') return padrao;
+  return ['1', 'true', 's', 'sim', 'yes'].includes(String(valor).toLowerCase());
+};
+
+const intEnv = (nome, padrao) => {
+  const valor = parseInt(process.env[nome], 10);
+  return Number.isFinite(valor) ? valor : padrao;
+};
+
+const frontendUrl = process.env.FRONTEND_URL || corsOrigins[0] || 'http://localhost:3000';
+const passwordResetEnabled = boolEnv('PASSWORD_RESET_ENABLED', true);
+const temSmtpUrl = Boolean(process.env.SMTP_URL);
+const temSmtpHost = Boolean(process.env.SMTP_HOST);
+const emailFrom = process.env.EMAIL_FROM || process.env.SMTP_FROM || process.env.SMTP_USER || '';
+
+const email = {
+  enabled: passwordResetEnabled && (temSmtpUrl || temSmtpHost),
+  smtpUrl: process.env.SMTP_URL || '',
+  host: process.env.SMTP_HOST || '',
+  port: intEnv('SMTP_PORT', 587),
+  secure: boolEnv('SMTP_SECURE', false),
+  user: process.env.SMTP_USER || '',
+  pass: process.env.SMTP_PASS || '',
+  from: emailFrom,
+};
+
+const passwordReset = {
+  enabled: passwordResetEnabled,
+  expiresMinutes: Math.min(Math.max(intEnv('PASSWORD_RESET_EXPIRES_MINUTES', 30), 5), 180),
+  frontendUrl,
+};
+
 const validarAmbiente = () => {
   const erros = [];
 
@@ -29,6 +63,13 @@ const validarAmbiente = () => {
 
     if (corsOrigins.length === 0 || corsOrigins.includes('*')) {
       erros.push('Configure CORS_ORIGINS com o(s) domínio(s) do frontend em produção.');
+    }
+
+    if (passwordResetEnabled) {
+      const smtpConfigurado = temSmtpUrl || temSmtpHost;
+      if (!smtpConfigurado || !emailFrom) {
+        erros.push('Configure SMTP_URL ou SMTP_HOST e EMAIL_FROM para recuperar senha em produção.');
+      }
     }
   }
 
@@ -46,17 +87,6 @@ const corsOptions = {
   },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
-};
-
-const boolEnv = (nome, padrao = false) => {
-  const valor = process.env[nome];
-  if (valor === undefined || valor === '') return padrao;
-  return ['1', 'true', 's', 'sim', 'yes'].includes(String(valor).toLowerCase());
-};
-
-const intEnv = (nome, padrao) => {
-  const valor = parseInt(process.env[nome], 10);
-  return Number.isFinite(valor) ? valor : padrao;
 };
 
 module.exports = {
@@ -81,5 +111,7 @@ module.exports = {
     maxRows: Math.min(Math.max(intEnv('ADMIN_SQL_MAX_ROWS', 1000), 1), 5000),
     statementTimeoutMs: Math.min(Math.max(intEnv('ADMIN_SQL_TIMEOUT_MS', 15000), 1000), 60000),
   },
+  email,
+  passwordReset,
   setupRouteEnabled: boolEnv('ENABLE_SETUP_ROUTE', !isProduction),
 };
